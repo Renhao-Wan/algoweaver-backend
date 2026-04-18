@@ -175,6 +175,8 @@ cython_debug/
 
 # VS Code
 .vscode/
+.kiro/
+.idea
 
 # macOS
 .DS_Store

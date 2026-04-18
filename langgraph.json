@@ -1,0 +1,10 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "main_graph": "./app/graph/main_graph.py:create_main_graph",
+    "dissection_subgraph": "./app/graph/subgraphs/dissection/builder.py:create_dissection_subgraph",
+    "review_subgraph": "./app/graph/subgraphs/review/builder.py:create_review_subgraph"
+  },
+  "env": ".env",
+  "python_version": "3.11"
+}

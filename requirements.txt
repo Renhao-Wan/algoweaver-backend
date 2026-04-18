@@ -1,0 +1,62 @@
+# FastAPI 核心框架
+fastapi==0.136.0
+uvicorn[standard]==0.44.0
+
+# LangGraph 多智能体编排
+langgraph==1.1.6
+langchain==1.2.15
+langchain-core==1.2.31
+langchain-community==0.4.1
+langsmith==0.7.32
+
+# 数据处理与验证
+pydantic==2.13.2
+pydantic-settings==2.13.1
+
+# WebSocket 支持
+websockets==16.0
+
+# 异步文件与网络
+aiofiles==25.1.0
+httpx==0.28.1
+
+# Redis 缓存
+redis==7.4.0
+
+# 安全执行环境
+docker==7.1.0
+psutil==7.2.2
+
+# HTTP 客户端（requests 保留用于兼容）
+requests>=2.32.5
+
+# 日志与监控
+structlog==25.2.0
+python-json-logger==3.2.1
+
+# 开发与测试
+pytest==8.3.4
+pytest-asyncio==0.26.0
+pytest-mock==3.14.0
+hypothesis==6.125.0
+
+# 代码质量
+black==25.1.0
+isort==6.0.1
+flake8==7.2.0
+mypy==1.15.0
+
+# 环境变量管理
+python-dotenv==1.1.0
+
+# JWT 认证
+python-jose[cryptography]==3.4.0
+passlib[bcrypt]==1.7.4
+
+# 文档生成
+markdown==3.7
+reportlab==4.4.1
+weasyprint==65.0
+
+# 类型提示（使用兼容版本）
+typing-extensions>=4.14.1
