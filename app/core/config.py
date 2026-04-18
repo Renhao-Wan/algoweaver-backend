@@ -6,7 +6,7 @@
 """
 
 from typing import Optional, List
-from pydantic import Field, validator
+from pydantic import Field, validator, field_validator
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 import os
@@ -81,38 +81,43 @@ class Settings(BaseSettings):
         env_file_encoding = "utf-8"
         case_sensitive = False
         extra = "allow"  # 允许额外字段
-        
-    @validator("environment")
+
+    @field_validator("environment")
+    @classmethod
     def validate_environment(cls, v):
         """验证运行环境"""
         allowed_envs = ["development", "testing", "staging", "production"]
         if v not in allowed_envs:
             raise ValueError(f"环境必须是以下之一: {allowed_envs}")
         return v
-    
-    @validator("log_level")
+
+    @field_validator("log_level")
+    @classmethod
     def validate_log_level(cls, v):
         """验证日志级别"""
         allowed_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         if v.upper() not in allowed_levels:
             raise ValueError(f"日志级别必须是以下之一: {allowed_levels}")
         return v.upper()
-    
-    @validator("llm_temperature")
+
+    @field_validator("llm_temperature")
+    @classmethod
     def validate_temperature(cls, v):
         """验证LLM温度参数"""
         if not 0.0 <= v <= 2.0:
             raise ValueError("LLM温度参数必须在0.0到2.0之间")
         return v
-    
-    @validator("port")
+
+    @field_validator("port")
+    @classmethod
     def validate_port(cls, v):
         """验证端口号"""
         if not 1 <= v <= 65535:
             raise ValueError("端口号必须在1到65535之间")
         return v
-    
-    @validator("cors_origins")
+
+    @field_validator("cors_origins")
+    @classmethod
     def validate_cors_origins(cls, v):
         """验证CORS源"""
         if not v:
