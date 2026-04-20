@@ -6,6 +6,7 @@ uvicorn[standard]==0.44.0
 langgraph==1.1.6
 langchain==1.2.15
 langchain-core==1.2.31
+langchain-openai==1.1.14
 langchain-community==0.4.1
 langsmith==0.7.32
 
