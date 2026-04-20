@@ -203,9 +203,27 @@ class DissectionState(TypedDict):
     step_simulator_result: NotRequired[Dict[str, Any]]
     visual_generator_result: NotRequired[Dict[str, Any]]
     
+    # 算法讲解结果
+    algorithm_explanation: NotRequired[AlgorithmExplanation]
+    
+    # 变量追踪和执行流程
+    variables_trace: NotRequired[Dict[str, List[Any]]]
+    execution_flow: NotRequired[List[str]]
+    performance_metrics: NotRequired[Dict[str, Any]]
+    
+    # 输入数据
+    input_data: NotRequired[Dict[str, Any]]
+    
     # 错误处理
     parsing_errors: List[str]
     simulation_errors: List[str]
+    error_info: NotRequired[str]
+    
+    # 重试和验证状态
+    needs_retry: NotRequired[bool]
+    retry_count: NotRequired[int]
+    simulation_validated: NotRequired[bool]
+    has_error: NotRequired[bool]
 
 
 class ReviewState(TypedDict):
