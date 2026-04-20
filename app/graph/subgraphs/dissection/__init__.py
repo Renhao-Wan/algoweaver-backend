@@ -7,44 +7,56 @@
 - 子图构建和管理
 
 主要组件：
-- nodes.py: 节点实现（StepSimulatorAgent, VisualGeneratorAgent）
+- agents/: Agent类实现和提示词
+- nodes.py: 节点函数实现
 - builder.py: 子图构建器和管理器
 """
 
-from .nodes import (
+from .agents import (
     StepSimulatorAgent,
     VisualGeneratorAgent,
+    StepType,
+    ComplexityType,
+    SimulationResult,
+    VisualizationOutput
+)
+
+from .nodes import (
     step_simulator_node,
-    visual_generator_node
+    visual_generator_node,
+    check_simulation_result,
+    handle_error
 )
 
 from .builder import (
     DissectionSubgraphBuilder,
     DissectionSubgraphManager,
     create_dissection_subgraph,
-    create_dissection_manager,
-    convert_global_to_dissection_state,
-    merge_dissection_to_global_state
+    create_dissection_manager
 )
 
 __all__ = [
     # 智能体类
     "StepSimulatorAgent",
     "VisualGeneratorAgent",
-    
+
+    # 枚举和数据类
+    "StepType",
+    "ComplexityType",
+    "SimulationResult",
+    "VisualizationOutput",
+
     # 节点函数
-    "step_simulator_node", 
+    "step_simulator_node",
     "visual_generator_node",
-    
+    "check_simulation_result",
+    "handle_error",
+
     # 构建器和管理器
     "DissectionSubgraphBuilder",
     "DissectionSubgraphManager",
-    
+
     # 工厂函数
     "create_dissection_subgraph",
-    "create_dissection_manager",
-    
-    # 状态转换函数
-    "convert_global_to_dissection_state",
-    "merge_dissection_to_global_state"
+    "create_dissection_manager"
 ]

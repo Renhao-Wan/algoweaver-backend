@@ -1,0 +1,635 @@
+"""
+主图构建器 (Main Graph Builder)
+
+本模块负责构建 AlgoWeaver AI 系统的主图，整合 Supervisor Agent 和各个子图，
+实现全局任务调度、动态路由和 Human-in-the-loop 机制。
+
+主图架构：
+1. 任务分析节点 (supervisor_analyze_task) - 分析用户任务，制定执行计划
+2. 路由决策节点 (supervisor_routing) - 根据当前状态决定下一步执行路径
+3. 算法拆解子图 (dissection_subgraph) - 执行算法分析和讲解生成
+4. 代码评审子图 (review_subgraph) - 执行代码质量检测和优化建议
+5. Human-in-the-loop 节点 (human_intervention) - 处理人工干预请求
+6. 总结生成节点 (generate_summary) - 生成最终任务执行总结
+
+主图支持：
+- 动态路由：根据 Supervisor 决策动态选择执行路径
+- 状态持久化：通过 Checkpointer 支持任务暂停和恢复
+- Human-in-the-loop：强制人工确认关键决策
+- 错误恢复：自动重试和降级处理
+"""
+
+from typing import Dict, Any, Literal
+from datetime import datetime
+from langgraph.graph import StateGraph, END, START
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.types import interrupt
+
+from app.graph.state import (
+    GlobalState,
+    TaskStatus,
+    Phase,
+    StateConverter,
+    HumanDecision
+)
+from app.graph.supervisor.agent import (
+    SupervisorAgent,
+    NextStep,
+    supervisor_analyze_task_node,
+    supervisor_routing_node
+)
+from app.graph.subgraphs.dissection.builder import DissectionSubgraphBuilder
+from app.graph.subgraphs.review.builder import ReviewSubgraphBuilder
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+class MainGraphBuilder:
+    """
+    主图构建器
+
+    负责构建和配置主图，整合 Supervisor Agent 和各个子图，
+    实现全局任务调度和动态路由。
+    """
+
+    def __init__(self, llm=None, checkpointer=None):
+        """
+        初始化主图构建器
+
+        Args:
+            llm: LLM 实例，用于 Supervisor Agent
+            checkpointer: 状态持久化器，默认使用 MemorySaver
+        """
+        self.llm = llm
+        self.checkpointer = checkpointer or MemorySaver()
+        self.graph = None
+        self.compiled_graph = None
+
+        # 初始化 Supervisor Agent
+        self.supervisor = SupervisorAgent(llm=llm)
+
+        # 构建子图
+        self.dissection_subgraph = self._build_dissection_subgraph()
+        self.review_subgraph = self._build_review_subgraph()
+
+    def _build_dissection_subgraph(self):
+        """构建算法拆解子图"""
+        logger.info("构建算法拆解子图")
+        builder = DissectionSubgraphBuilder()
+        subgraph = builder.build_dissection_subgraph()
+        return subgraph.compile()
+
+    def _build_review_subgraph(self):
+        """构建代码评审子图"""
+        logger.info("构建代码评审子图")
+        builder = ReviewSubgraphBuilder()
+        subgraph = builder.build_review_subgraph()
+        return subgraph.compile()
+
+    def build_main_graph(self) -> StateGraph:
+        """
+        构建主图
+
+        Returns:
+            配置完成的主图
+        """
+        logger.info("开始构建主图")
+
+        # 创建状态图
+        self.graph = StateGraph(GlobalState)
+
+        # 添加节点
+        self._add_nodes()
+
+        # 定义边和流程
+        self._define_edges()
+
+        # 设置入口
+        self._set_entry()
+
+        logger.info("主图构建完成")
+        return self.graph
+
+    def _add_nodes(self):
+        """添加主图节点"""
+        logger.debug("添加主图节点")
+
+        # 添加 Supervisor 节点
+        self.graph.add_node("supervisor_analyze_task", supervisor_analyze_task_node)
+        self.graph.add_node("supervisor_routing", supervisor_routing_node)
+
+        # 添加子图节点
+        self.graph.add_node("dissection_subgraph", self._call_dissection_subgraph)
+        self.graph.add_node("review_subgraph", self._call_review_subgraph)
+
+        # 添加 Human-in-the-loop 节点
+        self.graph.add_node("human_intervention", self._human_intervention_node)
+
+        # 添加总结生成节点
+        self.graph.add_node("generate_summary", self._generate_summary_node)
+
+        # 添加错误处理节点
+        self.graph.add_node("handle_error", self._handle_error_node)
+
+    def _define_edges(self):
+        """定义节点间的边和执行流程"""
+        logger.debug("定义主图执行流程")
+
+        # 任务分析 -> 路由决策
+        self.graph.add_edge("supervisor_analyze_task", "supervisor_routing")
+
+        # 路由决策 -> 条件路由
+        self.graph.add_conditional_edges(
+            "supervisor_routing",
+            self._route_next_step,
+            {
+                "dissection_subgraph": "dissection_subgraph",
+                "review_subgraph": "review_subgraph",
+                "human_intervention": "human_intervention",
+                "generate_summary": "generate_summary",
+                "handle_error": "handle_error",
+                "end": END
+            }
+        )
+
+        # 算法拆解子图 -> 路由决策
+        self.graph.add_edge("dissection_subgraph", "supervisor_routing")
+
+        # 代码评审子图 -> 路由决策
+        self.graph.add_edge("review_subgraph", "supervisor_routing")
+
+        # Human-in-the-loop -> 路由决策
+        self.graph.add_edge("human_intervention", "supervisor_routing")
+
+        # 总结生成 -> 结束
+        self.graph.add_edge("generate_summary", END)
+
+        # 错误处理 -> 路由决策（支持重试）
+        self.graph.add_edge("handle_error", "supervisor_routing")
+
+    def _set_entry(self):
+        """设置主图入口"""
+        logger.debug("设置主图入口")
+        self.graph.set_entry_point("supervisor_analyze_task")
+
+    def _route_next_step(self, state: GlobalState) -> str:
+        """
+        路由决策函数
+
+        根据 Supervisor 的路由决策，决定下一步执行的节点。
+
+        Args:
+            state: 全局状态
+
+        Returns:
+            下一步节点名称
+        """
+        # 检查是否有错误
+        if state.get("last_error"):
+            logger.warning(f"检测到错误: {state['last_error']}")
+            return "handle_error"
+
+        # 检查是否需要人工干预
+        if state.get("human_intervention_required"):
+            logger.info("需要人工干预")
+            return "human_intervention"
+
+        # 获取 Supervisor 的路由决策
+        routing_decision = state.get("shared_context", {}).get("routing_decision")
+
+        if not routing_decision:
+            logger.warning("未找到路由决策，默认进入总结生成")
+            return "generate_summary"
+
+        next_step = routing_decision.get("next_step")
+
+        # 映射 NextStep 枚举到节点名称
+        step_mapping = {
+            NextStep.DISSECTION_SUBGRAPH: "dissection_subgraph",
+            NextStep.REVIEW_SUBGRAPH: "review_subgraph",
+            NextStep.HUMAN_INTERVENTION: "human_intervention",
+            NextStep.COMPLETE: "generate_summary"
+        }
+
+        # 如果 next_step 是字符串，尝试转换为枚举
+        if isinstance(next_step, str):
+            try:
+                next_step = NextStep(next_step)
+            except ValueError:
+                logger.warning(f"无效的 next_step 值: {next_step}")
+                return "generate_summary"
+
+        node_name = step_mapping.get(next_step, "generate_summary")
+        logger.info(f"路由到节点: {node_name}")
+        return node_name
+
+    # ========================================================================
+    # 节点实现函数
+    # ========================================================================
+
+    async def _call_dissection_subgraph(self, state: GlobalState) -> GlobalState:
+        """
+        调用算法拆解子图
+
+        Args:
+            state: 全局状态
+
+        Returns:
+            更新后的全局状态
+        """
+        logger.info("调用算法拆解子图")
+
+        try:
+            # 更新状态
+            state["current_phase"] = Phase.DISSECTION
+            state["status"] = TaskStatus.ANALYZING
+            state["updated_at"] = datetime.utcnow()
+
+            # 使用 StateConverter 转换状态
+            dissection_state = StateConverter.global_to_dissection(state)
+
+            # 调用子图
+            result = await self.dissection_subgraph.ainvoke(dissection_state)
+
+            # 使用 StateConverter 合并结果
+            state = StateConverter.dissection_to_global(state, result)
+
+            logger.info("算法拆解子图执行完成")
+
+        except Exception as e:
+            logger.error(f"算法拆解子图执行失败: {str(e)}")
+            state["last_error"] = f"算法拆解失败: {str(e)}"
+            state["retry_count"] = state.get("retry_count", 0) + 1
+
+        return state
+
+    async def _call_review_subgraph(self, state: GlobalState) -> GlobalState:
+        """
+        调用代码评审子图
+
+        Args:
+            state: 全局状态
+
+        Returns:
+            更新后的全局状态
+        """
+        logger.info("调用代码评审子图")
+
+        try:
+            # 更新状态
+            state["current_phase"] = Phase.REVIEW
+            state["status"] = TaskStatus.OPTIMIZING
+            state["updated_at"] = datetime.utcnow()
+
+            # 使用 StateConverter 转换状态
+            review_state = StateConverter.global_to_review(state)
+
+            # 调用子图
+            result = await self.review_subgraph.ainvoke(review_state)
+
+            # 使用 StateConverter 合并结果
+            state = StateConverter.review_to_global(state, result)
+
+            logger.info("代码评审子图执行完成")
+
+        except Exception as e:
+            logger.error(f"代码评审子图执行失败: {str(e)}")
+            state["last_error"] = f"代码评审失败: {str(e)}"
+            state["retry_count"] = state.get("retry_count", 0) + 1
+
+        return state
+
+    async def _human_intervention_node(self, state: GlobalState) -> GlobalState:
+        """
+        Human-in-the-loop 节点
+
+        处理人工干预请求，暂停执行等待用户决策。
+
+        Args:
+            state: 全局状态
+
+        Returns:
+            更新后的全局状态
+        """
+        logger.info("进入 Human-in-the-loop 节点")
+
+        try:
+            # 更新状态
+            state["status"] = TaskStatus.WAITING_HUMAN
+            state["updated_at"] = datetime.utcnow()
+
+            # 获取待决策的内容
+            pending_decision = state.get("pending_human_decision", {})
+
+            if not pending_decision:
+                logger.warning("未找到待决策内容，生成默认干预请求")
+                pending_decision = {
+                    "intervention_type": "confirmation",
+                    "title": "确认继续执行",
+                    "description": "是否继续执行任务？",
+                    "options": [
+                        {"id": "continue", "label": "继续", "description": "继续执行任务"},
+                        {"id": "cancel", "label": "取消", "description": "取消任务"}
+                    ],
+                    "default_option": "continue"
+                }
+                state["pending_human_decision"] = pending_decision
+
+            # 使用 LangGraph 的 interrupt 机制暂停执行
+            # 用户决策将通过 resume 传入
+            logger.info(f"暂停执行，等待用户决策: {pending_decision.get('title')}")
+            user_decision = interrupt(pending_decision)
+
+            # 处理用户决策
+            if user_decision:
+                logger.info(f"收到用户决策: {user_decision}")
+
+                # 记录决策历史
+                decision_record = HumanDecision(
+                    decision_id=f"decision_{len(state.get('decision_history', []))}",
+                    decision_type=pending_decision.get("intervention_type", "unknown"),
+                    accepted_suggestions=user_decision.get("accepted_suggestions", []),
+                    rejected_suggestions=user_decision.get("rejected_suggestions", []),
+                    custom_input=user_decision.get("custom_input")
+                )
+                state["decision_history"].append(decision_record)
+
+                # 清除待决策标记
+                state["human_intervention_required"] = False
+                state["pending_human_decision"] = {}
+
+                # 根据用户决策更新状态
+                if user_decision.get("action") == "cancel":
+                    state["status"] = TaskStatus.CANCELED
+                    logger.info("用户取消任务")
+                else:
+                    state["status"] = TaskStatus.ANALYZING
+                    logger.info("用户确认继续执行")
+
+        except Exception as e:
+            logger.error(f"Human-in-the-loop 节点执行失败: {str(e)}")
+            state["last_error"] = f"人工干预处理失败: {str(e)}"
+
+        return state
+
+    async def _generate_summary_node(self, state: GlobalState) -> GlobalState:
+        """
+        生成任务执行总结
+
+        Args:
+            state: 全局状态
+
+        Returns:
+            更新后的全局状态
+        """
+        logger.info("生成任务执行总结")
+
+        try:
+            # 更新状态
+            state["current_phase"] = Phase.REPORT_GENERATION
+            state["status"] = TaskStatus.COMPLETED
+            state["progress"] = 1.0
+            state["updated_at"] = datetime.utcnow()
+
+            # 调用 Supervisor 生成总结
+            summary = await self.supervisor.generate_summary(state)
+
+            # 保存总结到共享上下文
+            state["shared_context"]["final_summary"] = summary
+
+            logger.info("任务执行总结生成完成")
+
+        except Exception as e:
+            logger.error(f"总结生成失败: {str(e)}")
+            state["last_error"] = f"总结生成失败: {str(e)}"
+            state["status"] = TaskStatus.FAILED
+
+        return state
+
+    async def _handle_error_node(self, state: GlobalState) -> GlobalState:
+        """
+        错误处理节点
+
+        分析错误并制定恢复策略。
+
+        Args:
+            state: 全局状态
+
+        Returns:
+            更新后的全局状态
+        """
+        logger.info("进入错误处理节点")
+
+        try:
+            last_error = state.get("last_error", "未知错误")
+            retry_count = state.get("retry_count", 0)
+
+            # 构造错误上下文
+            error_context = {
+                "error_message": last_error,
+                "current_phase": state.get("current_phase"),
+                "retry_count": retry_count,
+                "task_id": state.get("task_id")
+            }
+
+            # 调用 Supervisor 处理错误
+            error = Exception(last_error)
+            error_plan = await self.supervisor.handle_error(error, error_context, retry_count)
+
+            logger.info(f"错误处理方案: {error_plan.recovery_strategy}")
+
+            # 根据恢复策略更新状态
+            from app.graph.supervisor.agent import RecoveryStrategy
+
+            if error_plan.recovery_strategy == RecoveryStrategy.RETRY:
+                # 重试：清除错误标记，允许重新执行
+                if retry_count < error_plan.max_retries:
+                    logger.info(f"重试执行 (第 {retry_count + 1} 次)")
+                    state["last_error"] = None
+                    state["retry_count"] = retry_count + 1
+                else:
+                    logger.warning("已达到最大重试次数，中止任务")
+                    state["status"] = TaskStatus.FAILED
+                    state["shared_context"]["error_plan"] = error_plan.dict()
+
+            elif error_plan.recovery_strategy == RecoveryStrategy.DEGRADE:
+                # 降级：标记降级模式，继续执行
+                logger.info("启用降级模式")
+                state["last_error"] = None
+                state["shared_context"]["degraded_mode"] = True
+                state["shared_context"]["error_plan"] = error_plan.dict()
+
+            elif error_plan.recovery_strategy == RecoveryStrategy.SKIP:
+                # 跳过：清除错误，跳过当前步骤
+                logger.info("跳过当前步骤")
+                state["last_error"] = None
+                state["shared_context"]["skipped_steps"] = state["shared_context"].get("skipped_steps", [])
+                state["shared_context"]["skipped_steps"].append(state.get("current_phase"))
+
+            elif error_plan.recovery_strategy == RecoveryStrategy.HUMAN:
+                # 人工介入：设置人工干预标记
+                logger.info("请求人工介入")
+                state["human_intervention_required"] = True
+                state["pending_human_decision"] = {
+                    "intervention_type": "error_resolution",
+                    "title": "错误处理",
+                    "description": error_plan.user_message,
+                    "options": [
+                        {"id": "retry", "label": "重试", "description": "重新执行失败的步骤"},
+                        {"id": "skip", "label": "跳过", "description": "跳过当前步骤继续执行"},
+                        {"id": "abort", "label": "中止", "description": "中止任务执行"}
+                    ],
+                    "default_option": "retry"
+                }
+
+            else:  # ABORT
+                # 中止：标记任务失败
+                logger.warning("中止任务执行")
+                state["status"] = TaskStatus.FAILED
+                state["shared_context"]["error_plan"] = error_plan.dict()
+
+        except Exception as e:
+            logger.error(f"错误处理节点执行失败: {str(e)}")
+            state["status"] = TaskStatus.FAILED
+            state["last_error"] = f"错误处理失败: {str(e)}"
+
+        return state
+
+    def compile(self) -> Any:
+        """
+        编译主图
+
+        Returns:
+            编译后的可执行图
+        """
+        if not self.graph:
+            self.build_main_graph()
+
+        logger.info("编译主图")
+        self.compiled_graph = self.graph.compile(checkpointer=self.checkpointer)
+        logger.info("主图编译完成")
+
+        return self.compiled_graph
+
+
+# ============================================================================
+# 工厂函数
+# ============================================================================
+
+def create_main_graph(llm=None, checkpointer=None):
+    """
+    创建并编译主图
+
+    Args:
+        llm: LLM 实例
+        checkpointer: 状态持久化器
+
+    Returns:
+        编译后的主图
+    """
+    builder = MainGraphBuilder(llm=llm, checkpointer=checkpointer)
+    return builder.compile()
+
+
+# ============================================================================
+# 主图管理器
+# ============================================================================
+
+class MainGraphManager:
+    """
+    主图管理器
+
+    提供主图的高级管理功能，包括任务执行、状态查询和恢复。
+    """
+
+    def __init__(self, llm=None, checkpointer=None):
+        """
+        初始化主图管理器
+
+        Args:
+            llm: LLM 实例
+            checkpointer: 状态持久化器
+        """
+        self.builder = MainGraphBuilder(llm=llm, checkpointer=checkpointer)
+        self.graph = self.builder.compile()
+
+    async def execute_task(self, initial_state: GlobalState, config: Dict[str, Any] = None) -> GlobalState:
+        """
+        执行任务
+
+        Args:
+            initial_state: 初始状态
+            config: 执行配置（包含 thread_id 等）
+
+        Returns:
+            最终状态
+        """
+        logger.info(f"开始执行任务: {initial_state.get('task_id')}")
+
+        try:
+            # 执行图
+            result = await self.graph.ainvoke(initial_state, config=config)
+            logger.info(f"任务执行完成: {initial_state.get('task_id')}")
+            return result
+
+        except Exception as e:
+            logger.error(f"任务执行失败: {str(e)}")
+            raise
+
+    async def stream_task(self, initial_state: GlobalState, config: Dict[str, Any] = None):
+        """
+        流式执行任务
+
+        Args:
+            initial_state: 初始状态
+            config: 执行配置
+
+        Yields:
+            状态更新事件
+        """
+        logger.info(f"开始流式执行任务: {initial_state.get('task_id')}")
+
+        try:
+            async for event in self.graph.astream(initial_state, config=config):
+                yield event
+
+        except Exception as e:
+            logger.error(f"流式执行失败: {str(e)}")
+            raise
+
+    async def get_state(self, config: Dict[str, Any]) -> GlobalState:
+        """
+        获取任务状态
+
+        Args:
+            config: 配置（包含 thread_id）
+
+        Returns:
+            当前状态
+        """
+        state = await self.graph.aget_state(config)
+        return state.values if state else None
+
+    async def resume_task(self, config: Dict[str, Any], user_input: Any = None) -> GlobalState:
+        """
+        恢复暂停的任务
+
+        Args:
+            config: 配置（包含 thread_id）
+            user_input: 用户输入（用于 Human-in-the-loop）
+
+        Returns:
+            最终状态
+        """
+        logger.info("恢复任务执行")
+
+        try:
+            # 恢复执行
+            result = await self.graph.ainvoke(user_input, config=config)
+            logger.info("任务恢复执行完成")
+            return result
+
+        except Exception as e:
+            logger.error(f"任务恢复失败: {str(e)}")
+            raise

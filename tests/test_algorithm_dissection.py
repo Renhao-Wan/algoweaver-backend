@@ -13,7 +13,7 @@ from typing import Dict, Any, List
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
 from app.graph.state import DissectionState, ExecutionStep, AlgorithmExplanation
-from app.graph.subgraphs.dissection.nodes import (
+from app.graph.subgraphs.dissection.agents import (
     StepSimulatorAgent,
     VisualGeneratorAgent,
     StepType,
@@ -21,10 +21,9 @@ from app.graph.subgraphs.dissection.nodes import (
 )
 from app.graph.subgraphs.dissection.builder import (
     DissectionSubgraphBuilder,
-    DissectionSubgraphManager,
-    convert_global_to_dissection_state,
-    merge_dissection_to_global_state
+    DissectionSubgraphManager
 )
+from app.graph.state import StateConverter
 
 
 # ============================================================================
@@ -629,8 +628,8 @@ class TestStateConversion:
             retry_count=0
         )
         
-        # 转换状态
-        dissection_state = convert_global_to_dissection_state(global_state)
+        # 使用 StateConverter 转换状态
+        dissection_state = StateConverter.global_to_dissection(global_state)
         
         # 验证转换结果
         assert dissection_state["task_id"] == "test-123"
@@ -681,15 +680,17 @@ class TestStateConversion:
             )
         ]
         
-        # 合并状态
-        updated_global_state = merge_dissection_to_global_state(
-            global_state, 
+        # 使用 StateConverter 合并状态
+        updated_global_state = StateConverter.dissection_to_global(
+            global_state,
             sample_dissection_state
         )
         
         # 验证合并结果
         assert updated_global_state["algorithm_explanation"] is not None
-        assert len(updated_global_state["execution_steps"]) == 1
+        # 新的StateConverter将execution_steps存储在shared_context中
+        assert "dissection_result" in updated_global_state["shared_context"]
+        assert len(updated_global_state["shared_context"]["dissection_result"]["execution_steps"]) == 1
 
 
 # ============================================================================

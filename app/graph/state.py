@@ -1,20 +1,33 @@
 """
-LangGraph 状态定义模块
+LangGraph 状态定义模块（重构版）
 
-定义了多智能体系统中的状态类型，包括主图状态和子图局部状态。
-使用 TypedDict 和 Pydantic 进行状态类型约束，确保状态传递的类型安全。
+本模块定义了多智能体系统中的状态类型，遵循6大状态设计原则：
+1. Single Source of Truth: 每个数据只有一个权威来源
+2. Strong Typing: 使用强类型约束确保类型安全
+3. Minimal but Sufficient: 状态字段最小化但足够完成任务
+4. Clear Ownership: 明确每个字段的所有权和生命周期
+5. Consistency & Validation: 状态一致性和验证机制
+6. Evolvability: 易于扩展和演进
 
+状态层次结构：
+- GlobalState: 主图全局状态（任务级别）
+- DissectionState: 算法拆解子图局部状态（算法分析级别）
+- ReviewState: 代码评审子图局部状态（代码质量级别）
 """
 
 from typing import Dict, List, Optional, Any, Union
 from typing_extensions import TypedDict, NotRequired
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from datetime import datetime
 from enum import Enum
 
 
+# ============================================================================
+# 枚举类型定义
+# ============================================================================
+
 class TaskStatus(str, Enum):
-    """任务执行状态枚举"""
+    """任务执行状态"""
     PENDING = "pending"
     ANALYZING = "analyzing"
     WAITING_HUMAN = "waiting_human"
@@ -25,24 +38,22 @@ class TaskStatus(str, Enum):
 
 
 class Phase(str, Enum):
-    """执行阶段枚举"""
+    """执行阶段"""
     ANALYSIS = "analysis"
     DISSECTION = "dissection"
     REVIEW = "review"
-    OPTIMIZATION = "optimization"
-    VALIDATION = "validation"
     REPORT_GENERATION = "report_generation"
 
 
 class CollaborationMode(str, Enum):
-    """智能体协作模式枚举"""
+    """智能体协作模式"""
     MASTER_EXPERT = "master_expert"
     NEGOTIATION = "negotiation"
     ADVERSARIAL = "adversarial"
 
 
 class IssueType(str, Enum):
-    """代码问题类型枚举"""
+    """代码问题类型"""
     LOGIC_ERROR = "logic_error"
     BOUNDARY_CONDITION = "boundary_condition"
     PERFORMANCE = "performance"
@@ -52,7 +63,7 @@ class IssueType(str, Enum):
 
 
 class Severity(str, Enum):
-    """问题严重程度枚举"""
+    """问题严重程度"""
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
@@ -60,43 +71,43 @@ class Severity(str, Enum):
 
 
 # ============================================================================
-# 基础数据模型
+# 基础数据模型（Pydantic）
 # ============================================================================
 
 class ExecutionStep(BaseModel):
-    """算法执行步骤模型"""
-    step_number: int = Field(..., description="步骤编号")
-    description: str = Field(..., description="步骤描述")
+    """算法执行步骤"""
+    step_number: int = Field(..., ge=1, description="步骤编号（从1开始）")
+    description: str = Field(..., min_length=1, description="步骤描述")
     code_snippet: Optional[str] = Field(None, description="相关代码片段")
-    variables_state: Dict[str, Any] = Field(default_factory=dict, description="变量状态")
-    time_complexity: Optional[str] = Field(None, description="时间复杂度")
-    space_complexity: Optional[str] = Field(None, description="空间复杂度")
+    variables_state: Dict[str, Any] = Field(default_factory=dict, description="变量状态快照")
+    time_complexity: Optional[str] = Field(None, description="该步骤的时间复杂度")
+    space_complexity: Optional[str] = Field(None, description="该步骤的空间复杂度")
 
 
 class CodeIssue(BaseModel):
-    """代码问题模型"""
+    """代码问题"""
     issue_id: str = Field(..., description="问题唯一标识")
     type: IssueType = Field(..., description="问题类型")
     severity: Severity = Field(..., description="严重程度")
-    line_number: int = Field(..., description="问题所在行号")
-    description: str = Field(..., description="问题描述")
-    suggestion: str = Field(..., description="修复建议")
+    line_number: int = Field(..., ge=1, description="问题所在行号")
+    description: str = Field(..., min_length=1, description="问题描述")
+    suggestion: str = Field(..., min_length=1, description="修复建议")
     example_fix: Optional[str] = Field(None, description="修复示例代码")
 
 
 class Suggestion(BaseModel):
-    """优化建议模型"""
+    """优化建议"""
     suggestion_id: str = Field(..., description="建议唯一标识")
     issue_id: str = Field(..., description="关联的问题ID")
     improvement_type: str = Field(..., description="改进类型")
     original_code: str = Field(..., description="原始代码")
     improved_code: str = Field(..., description="改进后代码")
-    explanation: str = Field(..., description="改进说明")
+    explanation: str = Field(..., min_length=1, description="改进说明")
     impact_score: float = Field(..., ge=0, le=10, description="影响评分(0-10)")
 
 
 class HumanDecision(BaseModel):
-    """人工决策模型"""
+    """人工决策记录"""
     decision_id: str = Field(..., description="决策唯一标识")
     decision_type: str = Field(..., description="决策类型")
     accepted_suggestions: List[str] = Field(default_factory=list, description="接受的建议ID列表")
@@ -106,64 +117,67 @@ class HumanDecision(BaseModel):
 
 
 class AlgorithmExplanation(BaseModel):
-    """算法讲解模型"""
+    """算法讲解"""
     steps: List[ExecutionStep] = Field(default_factory=list, description="执行步骤列表")
-    pseudocode: str = Field(..., description="伪代码")
+    pseudocode: str = Field(..., min_length=1, description="伪代码")
     time_complexity: str = Field(..., description="时间复杂度")
     space_complexity: str = Field(..., description="空间复杂度")
-    visualization: Optional[str] = Field(None, description="可视化描述")
+    visualization: Optional[str] = Field(None, description="可视化描述（Mermaid/ASCII）")
     key_insights: List[str] = Field(default_factory=list, description="关键洞察")
 
 
 # ============================================================================
-# LangGraph 状态定义 (TypedDict)
+# LangGraph 状态定义（TypedDict）
 # ============================================================================
 
 class GlobalState(TypedDict):
     """
     主图全局状态
-    
-    管理整个多智能体系统的全局状态，包括任务信息、执行进度、
-    智能体协作状态和用户交互历史。
+
+    原则：
+    - Single Source of Truth: 任务级别的唯一真实来源
+    - Clear Ownership: 主图拥有任务生命周期和跨子图的共享数据
+    - Minimal: 只包含任务级别必需的字段
     """
-    # 任务基本信息
+    # === 任务标识（必需） ===
     task_id: str
     user_id: str
+
+    # === 输入数据（必需） ===
     original_code: str
     language: str
-    optimization_level: str
-    
-    # 执行状态
+    optimization_level: str  # "fast", "balanced", "thorough"
+
+    # === 执行状态（必需） ===
     status: TaskStatus
     current_phase: Phase
     progress: float  # 0.0 - 1.0
-    
-    # 智能体协作状态
+
+    # === 智能体协作（必需） ===
     collaboration_mode: CollaborationMode
     active_agents: List[str]
-    
-    # 分析结果
+
+    # === 结果数据（可选，由子图填充） ===
     algorithm_explanation: NotRequired[AlgorithmExplanation]
     detected_issues: NotRequired[List[CodeIssue]]
     optimization_suggestions: NotRequired[List[Suggestion]]
-    
-    # 迭代历史
-    code_versions: List[str]  # 代码版本历史
-    decision_history: List[HumanDecision]  # 人工决策历史
-    
-    # 人机交互
-    pending_human_decision: NotRequired[Dict[str, Any]]
+
+    # === 代码版本历史（必需） ===
+    code_versions: List[str]  # 代码演进历史
+
+    # === Human-in-the-loop（必需） ===
+    decision_history: List[HumanDecision]
     human_intervention_required: bool
-    
-    # 执行上下文
-    shared_context: Dict[str, Any]  # 智能体间共享的上下文信息
-    execution_metadata: Dict[str, Any]  # 执行元数据
-    
-    # 时间戳
+    pending_human_decision: NotRequired[Dict[str, Any]]
+
+    # === 共享上下文（必需） ===
+    shared_context: Dict[str, Any]  # 智能体间共享的临时数据
+
+    # === 时间戳（必需） ===
     created_at: datetime
     updated_at: datetime
-    
-    # 错误处理
+
+    # === 错误处理（可选） ===
     last_error: NotRequired[str]
     retry_count: int
 
@@ -171,124 +185,114 @@ class GlobalState(TypedDict):
 class DissectionState(TypedDict):
     """
     算法拆解子图局部状态
-    
-    专门用于算法分析和拆解过程的局部状态管理，
-    包含算法执行步骤、复杂度分析和可视化信息。
+
+    原则：
+    - Clear Ownership: 子图拥有算法分析过程的所有数据
+    - Minimal: 只包含算法拆解必需的字段
+    - State Isolation: 与全局状态隔离，通过转换函数交互
     """
-    # 继承自全局状态的关键信息
+    # === 任务标识（继承自全局） ===
     task_id: str
+
+    # === 输入数据（继承自全局） ===
     code: str
     language: str
-    
-    # 算法分析状态
-    analysis_phase: str  # "parsing", "simulation", "explanation", "visualization"
-    
-    # 执行步骤模拟
+
+    # === 分析阶段（子图内部） ===
+    analysis_phase: str  # "parsing", "simulation", "visualization", "completed"
+
+    # === 执行步骤模拟（子图核心数据） ===
     execution_steps: List[ExecutionStep]
     current_step: int
-    
-    # 算法特征分析
-    algorithm_type: NotRequired[str]  # "sorting", "searching", "graph", "dynamic_programming", etc.
+
+    # === 算法特征（子图分析结果） ===
+    algorithm_type: NotRequired[str]  # "sorting", "searching", "graph", etc.
     data_structures_used: List[str]
-    
-    # 复杂度分析
+
+    # === 复杂度分析（子图分析结果） ===
     time_complexity_analysis: NotRequired[Dict[str, str]]  # {"best": "O(n)", "average": "O(n log n)", "worst": "O(n²)"}
     space_complexity_analysis: NotRequired[str]
-    
-    # 可视化信息
+
+    # === 可视化数据（子图生成） ===
     visualization_data: NotRequired[Dict[str, Any]]
     pseudocode_generated: NotRequired[str]
-    
-    # 子图执行状态
-    step_simulator_result: NotRequired[Dict[str, Any]]
-    visual_generator_result: NotRequired[Dict[str, Any]]
-    
-    # 算法讲解结果
+
+    # === 算法讲解结果（子图最终输出） ===
     algorithm_explanation: NotRequired[AlgorithmExplanation]
-    
-    # 变量追踪和执行流程
+
+    # === 变量追踪（子图内部） ===
     variables_trace: NotRequired[Dict[str, List[Any]]]
     execution_flow: NotRequired[List[str]]
-    performance_metrics: NotRequired[Dict[str, Any]]
-    
-    # 输入数据
+
+    # === 输入数据（可选） ===
     input_data: NotRequired[Dict[str, Any]]
-    
-    # 错误处理
-    parsing_errors: List[str]
-    simulation_errors: List[str]
+
+    # === 错误处理（子图内部） ===
     error_info: NotRequired[str]
-    
-    # 重试和验证状态
     needs_retry: NotRequired[bool]
     retry_count: NotRequired[int]
     simulation_validated: NotRequired[bool]
-    has_error: NotRequired[bool]
 
 
 class ReviewState(TypedDict):
     """
     代码评审子图局部状态
-    
-    专门用于代码质量检测和优化建议生成的局部状态管理，
-    支持协商/对抗模式的多轮评审和验证。
+
+    原则：
+    - Clear Ownership: 子图拥有代码评审过程的所有数据
+    - Minimal: 只包含代码评审必需的字段
+    - State Isolation: 与全局状态隔离，通过转换函数交互
     """
-    # 继承自全局状态的关键信息
+    # === 任务标识（继承自全局） ===
     task_id: str
+
+    # === 输入数据（继承自全局） ===
     code: str
     language: str
     optimization_level: str
-    
-    # 评审阶段状态
-    review_phase: str  # "detection", "suggestion", "validation", "negotiation"
-    review_round: int  # 当前评审轮次
-    
-    # 问题检测结果
+
+    # === 评审阶段（子图内部） ===
+    review_phase: str  # "detection", "suggestion", "validation", "negotiation", "completed"
+    review_round: int  # 当前评审轮次（从1开始）
+
+    # === 问题检测结果（子图核心数据） ===
     detected_issues: List[CodeIssue]
     issue_categories: Dict[str, int]  # 按类型统计问题数量
-    
-    # 优化建议
+
+    # === 优化建议（子图核心数据） ===
     generated_suggestions: List[Suggestion]
     validated_suggestions: List[str]  # 已验证通过的建议ID
     rejected_suggestions: List[str]  # 已拒绝的建议ID
-    
-    # 协商/对抗模式状态
-    negotiation_rounds: int
+
+    # === 协商/对抗模式状态（子图内部） ===
+    iteration_count: int  # 迭代次数
     consensus_reached: bool
-    conflicting_suggestions: List[Dict[str, Any]]  # 冲突的建议
-    
-    # 智能体协作状态
-    mistake_detector_result: NotRequired[Dict[str, Any]]
-    suggestion_generator_result: NotRequired[Dict[str, Any]]
-    validation_tester_result: NotRequired[Dict[str, Any]]
-    
-    # 代码改进
+    confidence_score: NotRequired[float]  # 建议的置信度
+
+    # === 代码改进（子图生成） ===
     improved_code_versions: List[str]
     current_code_version: int
-    
-    # 质量评估
+
+    # === 质量评估（子图分析结果） ===
     quality_metrics: NotRequired[Dict[str, float]]  # {"readability": 8.5, "maintainability": 7.2, "performance": 9.1}
     quality_threshold: float  # 质量阈值
-    quality_improvement: NotRequired[float]  # 质量提升幅度
-    
-    # 验证结果
+
+    # === 验证结果（子图内部） ===
     validation_results: List[Dict[str, Any]]
     test_cases_passed: int
     test_cases_failed: int
-    
-    # 错误处理
-    detection_errors: List[str]
-    suggestion_errors: List[str]
-    validation_errors: List[str]
+
+    # === 错误处理（子图内部） ===
+    error_info: NotRequired[str]
 
 
 # ============================================================================
-# 状态工厂和工具函数
+# 状态工厂（创建和初始化）
 # ============================================================================
 
 class StateFactory:
-    """状态工厂类，用于创建和初始化各种状态对象"""
-    
+    """状态工厂：创建和初始化各种状态对象"""
+
     @staticmethod
     def create_global_state(
         task_id: str,
@@ -314,35 +318,46 @@ class StateFactory:
             decision_history=[],
             human_intervention_required=False,
             shared_context={},
-            execution_metadata={},
             created_at=now,
             updated_at=now,
             retry_count=0
         )
-    
+
     @staticmethod
-    def create_dissection_state(global_state: GlobalState) -> DissectionState:
-        """从全局状态创建算法拆解子图状态"""
-        return DissectionState(
-            task_id=global_state["task_id"],
-            code=global_state["original_code"],
-            language=global_state["language"],
+    def create_dissection_state(
+        task_id: str,
+        code: str,
+        language: str,
+        input_data: Optional[Dict[str, Any]] = None
+    ) -> DissectionState:
+        """创建算法拆解子图状态"""
+        state = DissectionState(
+            task_id=task_id,
+            code=code,
+            language=language,
             analysis_phase="parsing",
             execution_steps=[],
             current_step=0,
-            data_structures_used=[],
-            parsing_errors=[],
-            simulation_errors=[]
+            data_structures_used=[]
         )
-    
+        if input_data:
+            state['input_data'] = input_data
+        return state
+
     @staticmethod
-    def create_review_state(global_state: GlobalState) -> ReviewState:
-        """从全局状态创建代码评审子图状态"""
+    def create_review_state(
+        task_id: str,
+        code: str,
+        language: str,
+        optimization_level: str,
+        quality_threshold: float = 7.0
+    ) -> ReviewState:
+        """创建代码评审子图状态"""
         return ReviewState(
-            task_id=global_state["task_id"],
-            code=global_state["code_versions"][-1],  # 使用最新版本的代码
-            language=global_state["language"],
-            optimization_level=global_state["optimization_level"],
+            task_id=task_id,
+            code=code,
+            language=language,
+            optimization_level=optimization_level,
             review_phase="detection",
             review_round=1,
             detected_issues=[],
@@ -350,75 +365,169 @@ class StateFactory:
             generated_suggestions=[],
             validated_suggestions=[],
             rejected_suggestions=[],
-            negotiation_rounds=0,
+            iteration_count=0,
             consensus_reached=False,
-            conflicting_suggestions=[],
             improved_code_versions=[],
             current_code_version=0,
-            quality_threshold=7.0,  # 默认质量阈值
+            quality_threshold=quality_threshold,
             validation_results=[],
             test_cases_passed=0,
-            test_cases_failed=0,
-            detection_errors=[],
-            suggestion_errors=[],
-            validation_errors=[]
+            test_cases_failed=0
         )
 
 
+# ============================================================================
+# 状态转换器（全局状态 ↔ 子图状态）
+# ============================================================================
+
+class StateConverter:
+    """状态转换器：在全局状态和子图状态之间转换"""
+
+    @staticmethod
+    def global_to_dissection(global_state: GlobalState) -> DissectionState:
+        """将全局状态转换为算法拆解子图状态"""
+        return StateFactory.create_dissection_state(
+            task_id=global_state['task_id'],
+            code=global_state['original_code'],
+            language=global_state['language'],
+            input_data=global_state.get('shared_context', {}).get('input_data')
+        )
+
+    @staticmethod
+    def dissection_to_global(
+        global_state: GlobalState,
+        dissection_state: DissectionState
+    ) -> GlobalState:
+        """将算法拆解子图结果合并到全局状态"""
+        # 更新算法讲解
+        if 'algorithm_explanation' in dissection_state:
+            global_state['algorithm_explanation'] = dissection_state['algorithm_explanation']
+
+        # 更新共享上下文
+        global_state['shared_context']['dissection_result'] = {
+            'execution_steps': dissection_state.get('execution_steps', []),
+            'variables_trace': dissection_state.get('variables_trace', {}),
+            'execution_flow': dissection_state.get('execution_flow', []),
+            'algorithm_type': dissection_state.get('algorithm_type'),
+            'data_structures_used': dissection_state.get('data_structures_used', [])
+        }
+
+        # 更新错误信息
+        if dissection_state.get('error_info'):
+            global_state['last_error'] = f"算法拆解错误: {dissection_state['error_info']}"
+
+        global_state['updated_at'] = datetime.utcnow()
+        return global_state
+
+    @staticmethod
+    def global_to_review(global_state: GlobalState) -> ReviewState:
+        """将全局状态转换为代码评审子图状态"""
+        # 使用最新版本的代码
+        latest_code = global_state['code_versions'][-1]
+
+        return StateFactory.create_review_state(
+            task_id=global_state['task_id'],
+            code=latest_code,
+            language=global_state['language'],
+            optimization_level=global_state['optimization_level'],
+            quality_threshold=global_state.get('shared_context', {}).get('quality_threshold', 7.0)
+        )
+
+    @staticmethod
+    def review_to_global(
+        global_state: GlobalState,
+        review_state: ReviewState
+    ) -> GlobalState:
+        """将代码评审子图结果合并到全局状态"""
+        # 更新检测到的问题
+        if review_state.get('detected_issues'):
+            global_state['detected_issues'] = review_state['detected_issues']
+
+        # 更新优化建议
+        if review_state.get('generated_suggestions'):
+            global_state['optimization_suggestions'] = review_state['generated_suggestions']
+
+        # 更新代码版本
+        if review_state.get('improved_code_versions'):
+            for improved_code in review_state['improved_code_versions']:
+                if improved_code not in global_state['code_versions']:
+                    global_state['code_versions'].append(improved_code)
+
+        # 更新共享上下文
+        global_state['shared_context']['review_result'] = {
+            'iteration_count': review_state.get('iteration_count', 0),
+            'consensus_reached': review_state.get('consensus_reached', False),
+            'quality_metrics': review_state.get('quality_metrics', {}),
+            'test_cases_passed': review_state.get('test_cases_passed', 0),
+            'test_cases_failed': review_state.get('test_cases_failed', 0)
+        }
+
+        # 更新错误信息
+        if review_state.get('error_info'):
+            global_state['last_error'] = f"代码评审错误: {review_state['error_info']}"
+
+        global_state['updated_at'] = datetime.utcnow()
+        return global_state
+
+
+# ============================================================================
+# 状态工具（操作辅助）
+# ============================================================================
+
 class StateUtils:
-    """状态工具类，提供状态操作的辅助方法"""
-    
+    """状态工具：提供状态操作的辅助方法"""
+
     @staticmethod
     def update_progress(state: GlobalState, progress: float) -> None:
         """更新全局状态的进度"""
-        state["progress"] = max(0.0, min(1.0, progress))
-        state["updated_at"] = datetime.utcnow()
-    
+        state['progress'] = max(0.0, min(1.0, progress))
+        state['updated_at'] = datetime.utcnow()
+
     @staticmethod
     def add_code_version(state: GlobalState, new_code: str) -> None:
-        """添加新的代码版本到历史记录"""
-        state["code_versions"].append(new_code)
-        state["updated_at"] = datetime.utcnow()
-    
+        """添加新的代码版本"""
+        if new_code not in state['code_versions']:
+            state['code_versions'].append(new_code)
+        state['updated_at'] = datetime.utcnow()
+
     @staticmethod
     def add_human_decision(state: GlobalState, decision: HumanDecision) -> None:
-        """添加人工决策到历史记录"""
-        state["decision_history"].append(decision)
-        state["updated_at"] = datetime.utcnow()
-    
+        """添加人工决策记录"""
+        state['decision_history'].append(decision)
+        state['updated_at'] = datetime.utcnow()
+
     @staticmethod
-    def set_human_intervention_required(
-        state: GlobalState, 
-        required: bool, 
+    def set_human_intervention(
+        state: GlobalState,
+        required: bool,
         decision_data: Optional[Dict[str, Any]] = None
     ) -> None:
-        """设置是否需要人工干预"""
-        state["human_intervention_required"] = required
+        """设置人工干预状态"""
+        state['human_intervention_required'] = required
         if required and decision_data:
-            state["pending_human_decision"] = decision_data
-        elif not required and "pending_human_decision" in state:
-            del state["pending_human_decision"]
-        state["updated_at"] = datetime.utcnow()
-    
+            state['pending_human_decision'] = decision_data
+        elif not required and 'pending_human_decision' in state:
+            del state['pending_human_decision']
+        state['updated_at'] = datetime.utcnow()
+
     @staticmethod
-    def increment_retry_count(state: GlobalState) -> None:
-        """增加重试计数"""
-        state["retry_count"] += 1
-        state["updated_at"] = datetime.utcnow()
-    
-    @staticmethod
-    def set_error(state: GlobalState, error_message: str) -> None:
+    def set_error(state: Union[GlobalState, DissectionState, ReviewState], error_message: str) -> None:
         """设置错误信息"""
-        state["last_error"] = error_message
-        state["status"] = TaskStatus.FAILED
-        state["updated_at"] = datetime.utcnow()
-    
+        state['error_info'] = error_message
+        if isinstance(state, GlobalState):
+            state['last_error'] = error_message
+            state['status'] = TaskStatus.FAILED
+        state['updated_at'] = datetime.utcnow() if 'updated_at' in state else None
+
     @staticmethod
-    def clear_error(state: GlobalState) -> None:
+    def clear_error(state: Union[GlobalState, DissectionState, ReviewState]) -> None:
         """清除错误信息"""
-        if "last_error" in state:
-            del state["last_error"]
-        state["updated_at"] = datetime.utcnow()
+        if 'error_info' in state:
+            del state['error_info']
+        if isinstance(state, GlobalState) and 'last_error' in state:
+            del state['last_error']
+        if 'updated_at' in state:
+            state['updated_at'] = datetime.utcnow()
 
 
 # ============================================================================
@@ -426,66 +535,87 @@ class StateUtils:
 # ============================================================================
 
 class StateValidator:
-    """状态验证器，确保状态数据的完整性和一致性"""
-    
+    """状态验证器：确保状态数据的完整性和一致性"""
+
     @staticmethod
     def validate_global_state(state: GlobalState) -> List[str]:
-        """验证全局状态的有效性"""
+        """验证全局状态"""
         errors = []
-        
+
         # 必填字段检查
         required_fields = ["task_id", "user_id", "original_code", "language"]
         for field in required_fields:
             if not state.get(field):
                 errors.append(f"缺少必填字段: {field}")
-        
+
         # 进度值检查
-        if not (0.0 <= state.get("progress", 0) <= 1.0):
-            errors.append("进度值必须在 0.0 到 1.0 之间")
-        
+        progress = state.get("progress", 0)
+        if not (0.0 <= progress <= 1.0):
+            errors.append(f"进度值必须在 0.0 到 1.0 之间，当前值: {progress}")
+
         # 代码版本历史检查
         if not state.get("code_versions"):
             errors.append("代码版本历史不能为空")
-        
+
+        # 重试次数检查
+        if state.get("retry_count", 0) < 0:
+            errors.append("重试次数不能为负数")
+
         return errors
-    
+
     @staticmethod
     def validate_dissection_state(state: DissectionState) -> List[str]:
-        """验证算法拆解状态的有效性"""
+        """验证算法拆解状态"""
         errors = []
-        
+
         # 必填字段检查
         required_fields = ["task_id", "code", "language", "analysis_phase"]
         for field in required_fields:
             if not state.get(field):
                 errors.append(f"缺少必填字段: {field}")
-        
+
         # 当前步骤检查
         current_step = state.get("current_step", 0)
         execution_steps = state.get("execution_steps", [])
         if current_step < 0 or current_step > len(execution_steps):
-            errors.append("当前步骤索引超出范围")
-        
+            errors.append(f"当前步骤索引超出范围: {current_step}, 总步骤数: {len(execution_steps)}")
+
+        # 重试次数检查
+        if state.get("retry_count", 0) < 0:
+            errors.append("重试次数不能为负数")
+
         return errors
-    
+
     @staticmethod
     def validate_review_state(state: ReviewState) -> List[str]:
-        """验证代码评审状态的有效性"""
+        """验证代码评审状态"""
         errors = []
-        
+
         # 必填字段检查
         required_fields = ["task_id", "code", "language", "review_phase"]
         for field in required_fields:
             if not state.get(field):
                 errors.append(f"缺少必填字段: {field}")
-        
+
         # 评审轮次检查
-        if state.get("review_round", 0) < 1:
-            errors.append("评审轮次必须大于等于1")
-        
+        review_round = state.get("review_round", 0)
+        if review_round < 1:
+            errors.append(f"评审轮次必须大于等于1，当前值: {review_round}")
+
+        # 迭代次数检查
+        iteration_count = state.get("iteration_count", 0)
+        if iteration_count < 0:
+            errors.append(f"迭代次数不能为负数，当前值: {iteration_count}")
+
         # 质量阈值检查
         quality_threshold = state.get("quality_threshold", 0)
         if not (0.0 <= quality_threshold <= 10.0):
-            errors.append("质量阈值必须在 0.0 到 10.0 之间")
-        
+            errors.append(f"质量阈值必须在 0.0 到 10.0 之间，当前值: {quality_threshold}")
+
+        # 测试用例数量检查
+        passed = state.get("test_cases_passed", 0)
+        failed = state.get("test_cases_failed", 0)
+        if passed < 0 or failed < 0:
+            errors.append("测试用例数量不能为负数")
+
         return errors

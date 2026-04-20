@@ -13,7 +13,12 @@ from typing import Dict, Any, List, Optional
 from langgraph.graph import StateGraph, END, START
 from langgraph.checkpoint.memory import MemorySaver
 
-from app.graph.state import DissectionState, GlobalState
+from app.graph.state import (
+    DissectionState,
+    GlobalState,
+    StateConverter,
+    StateFactory
+)
 from app.graph.subgraphs.dissection.nodes import (
     step_simulator_node,
     visual_generator_node
@@ -302,49 +307,49 @@ class DissectionSubgraphManager:
             raise
     
     async def execute_dissection(
-        self, 
-        code: str, 
+        self,
+        code: str,
+        language: str,
+        task_id: str,
         input_data: Optional[Dict[str, Any]] = None,
         config: Optional[Dict[str, Any]] = None
     ) -> DissectionState:
         """
         执行算法拆解
-        
+
         Args:
             code: 要分析的代码
+            language: 编程语言
+            task_id: 任务ID
             input_data: 输入数据
             config: 执行配置
-            
+
         Returns:
             拆解结果状态
         """
         if not self.compiled_subgraph:
             raise ValueError("子图尚未初始化，请先调用 initialize_subgraph()")
-        
+
         logger.info(f"开始执行算法拆解，代码长度: {len(code)} 字符")
-        
+
         try:
-            # 创建初始状态
-            initial_state = DissectionState(
+            # 使用 StateFactory 创建初始状态
+            initial_state = StateFactory.create_dissection_state(
+                task_id=task_id,
                 code=code,
-                input_data=input_data or {},
-                execution_steps=[],
-                variables_trace={},
-                execution_flow=[],
-                performance_metrics={},
-                algorithm_explanation=None,
-                error_info=None
+                language=language,
+                input_data=input_data
             )
-            
+
             # 执行子图
             result = await self.compiled_subgraph.ainvoke(
                 initial_state,
                 config=config or {}
             )
-            
+
             logger.info("算法拆解执行完成")
             return result
-            
+
         except Exception as e:
             logger.error(f"执行算法拆解失败: {str(e)}")
             raise
@@ -377,10 +382,10 @@ class DissectionSubgraphManager:
 def create_dissection_subgraph(checkpointer=None) -> Any:
     """
     创建算法拆解子图的工厂函数
-    
+
     Args:
         checkpointer: 检查点保存器
-        
+
     Returns:
         编译后的算法拆解子图
     """
@@ -391,63 +396,8 @@ def create_dissection_subgraph(checkpointer=None) -> Any:
 def create_dissection_manager() -> DissectionSubgraphManager:
     """
     创建算法拆解子图管理器的工厂函数
-    
+
     Returns:
         算法拆解子图管理器实例
     """
     return DissectionSubgraphManager()
-
-
-# 状态转换辅助函数
-
-def convert_global_to_dissection_state(global_state: GlobalState) -> DissectionState:
-    """
-    将全局状态转换为拆解状态
-    
-    Args:
-        global_state: 全局状态
-        
-    Returns:
-        拆解状态
-    """
-    return DissectionState(
-        task_id=global_state['task_id'],
-        code=global_state['original_code'],
-        language=global_state['language'],
-        analysis_phase="parsing",
-        execution_steps=[],
-        current_step=0,
-        data_structures_used=[],
-        parsing_errors=[],
-        simulation_errors=[]
-    )
-
-
-def merge_dissection_to_global_state(
-    global_state: GlobalState, 
-    dissection_state: DissectionState
-) -> GlobalState:
-    """
-    将拆解状态合并到全局状态
-    
-    Args:
-        global_state: 全局状态
-        dissection_state: 拆解状态
-        
-    Returns:
-        更新后的全局状态
-    """
-    # 更新算法讲解相关字段
-    global_state['algorithm_explanation'] = dissection_state.get('algorithm_explanation')
-    global_state['execution_steps'] = dissection_state.get('execution_steps', [])
-    global_state['variables_trace'] = dissection_state.get('variables_trace', {})
-    global_state['execution_flow'] = dissection_state.get('execution_flow', [])
-    global_state['performance_metrics'] = dissection_state.get('performance_metrics', {})
-    
-    # 如果有错误，更新错误信息
-    if dissection_state.get('error_info'):
-        if 'error_info' not in global_state:
-            global_state['error_info'] = []
-        global_state['error_info'].append(f"算法拆解错误: {dissection_state['error_info']}")
-    
-    return global_state
