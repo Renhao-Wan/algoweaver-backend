@@ -709,14 +709,10 @@ class SupervisorAgent:
 
 async def supervisor_analyze_task_node(state: GlobalState) -> GlobalState:
     """Supervisor 任务分析节点"""
-    from app.core.config import get_settings
+    # 使用全局单例 LLM 实例
+    from app.api.deps import get_llm
 
-    settings = get_settings()
-
-    # 这里需要根据实际配置初始化 LLM
-    # llm = ChatOpenAI(model=settings.llm_model, api_key=settings.llm_api_key)
-    llm = None  # 占位符，需要实际初始化
-
+    llm = get_llm()
     supervisor = SupervisorAgent(llm)
 
     try:
@@ -739,14 +735,10 @@ async def supervisor_analyze_task_node(state: GlobalState) -> GlobalState:
 
 async def supervisor_routing_node(state: GlobalState) -> GlobalState:
     """Supervisor 路由决策节点"""
-    from app.core.config import get_settings
+    # 使用全局单例 LLM 实例
+    from app.api.deps import get_llm
 
-    settings = get_settings()
-
-    # 这里需要根据实际配置初始化 LLM
-    # llm = ChatOpenAI(model=settings.llm_model, api_key=settings.llm_api_key)
-    llm = None  # 占位符，需要实际初始化
-
+    llm = get_llm()
     supervisor = SupervisorAgent(llm)
 
     try:

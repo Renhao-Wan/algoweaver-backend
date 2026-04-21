@@ -2,6 +2,24 @@
 API 依赖注入模块
 
 提供 FastAPI 路由所需的依赖项，包括配置、LLM 实例、Graph 实例等。
+┌─────────────────────────────────────────────┐
+│         app/api/deps.py                     │
+│         (依赖注入中心)                       │
+│                                             │
+│  - get_llm() → 单例 LLM 实例                │
+│  - get_graph_manager() → 主图管理器         │
+│  - get_config() → 全局配置                  │
+└──────────────┬──────────────────────────────┘
+               │ 被所有层使用
+               ↓
+┌──────────────────────────────────────────────┐
+│  使用者：                                     │
+│  ✓ API 路由 (app/api/routes/)                │
+│  ✓ 主图 Supervisor (app/graph/supervisor/)   │
+│  ✓ 子图节点 (app/graph/subgraphs/*/nodes.py) │
+│  ✓ 所有 Agent 实现                           │
+└──────────────────────────────────────────────┘
+
 """
 
 from typing import Optional
@@ -56,7 +74,7 @@ def get_llm(settings: Settings = Depends(get_config)) -> ChatOpenAI:
     if _llm_instance is None:
         try:
             _llm_instance = ChatOpenAI(
-                api_key=settings.llm_api_key,
+                api_key=lambda : settings.llm_api_key,
                 base_url=settings.llm_api_base,
                 model=settings.llm_model,
                 temperature=settings.llm_temperature,

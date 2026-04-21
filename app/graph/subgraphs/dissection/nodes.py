@@ -8,6 +8,7 @@
 这些节点协作完成算法的逐步分析和可视化讲解生成。
 """
 
+from app.api.deps import get_llm
 from app.graph.state import DissectionState
 from app.graph.tools.python_repl import PythonSandbox
 from app.graph.subgraphs.dissection.agents import (
@@ -33,13 +34,8 @@ async def step_simulator_node(state: DissectionState) -> DissectionState:
     Returns:
         更新后的拆解状态，包含模拟结果
     """
-    from app.core.config import get_settings
-
-    settings = get_settings()
-
-    # 这里需要根据实际配置初始化 LLM
-    # llm = ChatOpenAI(model=settings.llm_model, api_key=settings.llm_api_key)
-    llm = None  # 占位符，需要实际初始化
+    # 使用全局单例 LLM 实例
+    llm = get_llm()
 
     sandbox = PythonSandbox()
     agent = StepSimulatorAgent(llm, sandbox)
@@ -59,13 +55,8 @@ async def visual_generator_node(state: DissectionState) -> DissectionState:
     Returns:
         更新后的拆解状态，包含可视化讲解
     """
-    from app.core.config import get_settings
-
-    settings = get_settings()
-
-    # 这里需要根据实际配置初始化 LLM
-    # llm = ChatOpenAI(model=settings.llm_model, api_key=settings.llm_api_key)
-    llm = None  # 占位符，需要实际初始化
+    # 使用全局单例 LLM 实例
+    llm = get_llm()
 
     agent = VisualGeneratorAgent(llm)
 

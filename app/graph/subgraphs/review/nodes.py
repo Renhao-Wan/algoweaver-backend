@@ -9,6 +9,7 @@
 这些节点协作完成代码质量检测和优化建议生成，支持协商/对抗模式的多轮评审。
 """
 
+from app.api.deps import get_llm
 from app.graph.state import ReviewState
 from app.graph.tools.python_repl import PythonSandbox
 from app.graph.subgraphs.review.agents import (
@@ -35,13 +36,8 @@ async def mistake_detector_node(state: ReviewState) -> ReviewState:
     Returns:
         更新后的评审状态，包含检测到的问题
     """
-    from app.core.config import get_settings
-
-    settings = get_settings()
-
-    # 这里需要根据实际配置初始化 LLM
-    # llm = ChatOpenAI(model=settings.llm_model, api_key=settings.llm_api_key)
-    llm = None  # 占位符，需要实际初始化
+    # 使用全局单例 LLM 实例
+    llm = get_llm()
 
     sandbox = PythonSandbox()
     agent = MistakeDetectorAgent(llm, sandbox)
@@ -61,13 +57,8 @@ async def suggestion_generator_node(state: ReviewState) -> ReviewState:
     Returns:
         更新后的评审状态，包含优化建议
     """
-    from app.core.config import get_settings
-
-    settings = get_settings()
-
-    # 这里需要根据实际配置初始化 LLM
-    # llm = ChatOpenAI(model=settings.llm_model, api_key=settings.llm_api_key)
-    llm = None  # 占位符，需要实际初始化
+    # 使用全局单例 LLM 实例
+    llm = get_llm()
 
     agent = SuggestionGeneratorAgent(llm)
 
@@ -86,13 +77,8 @@ async def validation_tester_node(state: ReviewState) -> ReviewState:
     Returns:
         更新后的评审状态，包含验证结果
     """
-    from app.core.config import get_settings
-
-    settings = get_settings()
-
-    # 这里需要根据实际配置初始化 LLM
-    # llm = ChatOpenAI(model=settings.llm_model, api_key=settings.llm_api_key)
-    llm = None  # 占位符，需要实际初始化
+    # 使用全局单例 LLM 实例
+    llm = get_llm()
 
     sandbox = PythonSandbox()
     agent = ValidationTesterAgent(llm, sandbox)
