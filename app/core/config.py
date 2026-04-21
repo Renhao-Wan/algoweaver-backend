@@ -74,9 +74,9 @@ class Settings(BaseSettings):
     max_concurrent_tasks: int = Field(default=10, description="最大并发任务数")
     task_timeout: int = Field(default=300, description="任务超时时间(秒)")
     rate_limit_per_hour: int = Field(default=100, description="每小时请求限制")
-    
+
     class Config:
-        env_file = ".env"
+        env_file = ".env.dev"
         env_file_encoding = "utf-8"
         case_sensitive = False
         extra = "allow"  # 允许额外字段
