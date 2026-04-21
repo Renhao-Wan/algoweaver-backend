@@ -15,7 +15,7 @@ from datetime import datetime
 
 from app.graph.state import (
     GlobalState, DissectionState, ReviewState,
-    TaskStatus, Phase, CollaborationMode,
+    StateTaskStatus, Phase, CollaborationMode,
     StateConverter, StateFactory
 )
 from app.graph.subgraphs.dissection.builder import DissectionSubgraphBuilder

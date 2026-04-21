@@ -4,8 +4,7 @@ Supervisor Agent 提示词模板
 本模块定义 Supervisor Agent 专用的系统提示词，用于任务分析、路由决策和智能体协调。
 """
 
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from typing import Dict, Any
+from langchain_core.prompts import ChatPromptTemplate
 
 
 class SupervisorPrompts:

@@ -6,14 +6,14 @@
 
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
-from app.schemas.requests import TaskRequest, HumanInterventionRequest
+from app.schemas.requests import TaskRequest, HumanInterventionRequest, ReportGenerationRequest
 from app.schemas.responses import (
     TaskCreationResponse,
     TaskStatusResponse,
     AnalysisResultResponse,
-    ErrorResponse
+    ReportResponse
 )
 from app.services.weaver_service import WeaverService
 from app.api.deps import get_graph_manager, get_config
@@ -299,6 +299,107 @@ async def cancel_task(
 
 
 # ============================================================================
+# 报告生成
+# ============================================================================
+
+@router.post(
+    "/task/{task_id}/report",
+    response_model=ReportResponse,
+    summary="生成教学报告",
+    description="为指定任务生成教学报告"
+)
+async def generate_report(
+    task_id: str,
+    request: Optional[ReportGenerationRequest] = None,
+    service: WeaverService = Depends(get_weaver_service)
+) -> ReportResponse:
+    """
+    生成教学报告
+
+    Args:
+        task_id: 任务ID
+        request: 报告生成请求
+        service: Weaver Service
+
+    Returns:
+        ReportResponse: 报告响应
+    """
+    try:
+        logger.info(f"生成教学报告: {task_id}")
+
+        # 生成报告
+        response = await service.generate_report(task_id, request)
+
+        return response
+
+    except ValueError as e:
+        logger.warning(f"任务不存在: {task_id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"生成报告失败: {task_id}, 错误: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"生成报告失败: {str(e)}"
+        )
+
+
+@router.get(
+    "/task/{task_id}/report/content",
+    response_class=PlainTextResponse,
+    summary="获取报告内容",
+    description="直接获取报告内容（不保存文件）"
+)
+async def get_report_content(
+    task_id: str,
+    format: str = "markdown",
+    template: str = "default",
+    include_history: bool = True,
+    service: WeaverService = Depends(get_weaver_service)
+) -> str:
+    """
+    获取报告内容
+
+    Args:
+        task_id: 任务ID
+        format: 报告格式
+        template: 报告模板
+        include_history: 是否包含优化历史
+        service: Weaver Service
+
+    Returns:
+        str: 报告内容
+    """
+    try:
+        logger.info(f"获取报告内容: {task_id}")
+
+        # 获取报告内容
+        content = await service.get_report_content(
+            task_id,
+            format=format,
+            template=template,
+            include_history=include_history
+        )
+
+        return content
+
+    except ValueError as e:
+        logger.warning(f"任务不存在: {task_id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"获取报告内容失败: {task_id}, 错误: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取报告内容失败: {str(e)}"
+        )
+
+
+# ============================================================================
 # 健康检查
 # ============================================================================
 
@@ -322,3 +423,4 @@ async def health_check() -> JSONResponse:
             "version": "1.0.0"
         }
     )
+

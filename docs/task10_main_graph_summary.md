@@ -98,7 +98,7 @@ supervisor_routing (路由决策)
 **算法拆解子图调用** (`_call_dissection_subgraph`):
 ```python
 async def _call_dissection_subgraph(state: GlobalState) -> GlobalState:
-    # 1. 更新状态（Phase.DISSECTION, TaskStatus.ANALYZING）
+    # 1. 更新状态（Phase.DISSECTION, StateTaskStatus.ANALYZING）
     # 2. 转换全局状态为子图局部状态
     # 3. 调用子图执行
     # 4. 合并子图结果到全局状态
@@ -108,7 +108,7 @@ async def _call_dissection_subgraph(state: GlobalState) -> GlobalState:
 **代码评审子图调用** (`_call_review_subgraph`):
 ```python
 async def _call_review_subgraph(state: GlobalState) -> GlobalState:
-    # 1. 更新状态（Phase.REVIEW, TaskStatus.OPTIMIZING）
+    # 1. 更新状态（Phase.REVIEW, StateTaskStatus.OPTIMIZING）
     # 2. 转换全局状态为子图局部状态
     # 3. 调用子图执行
     # 4. 合并子图结果到全局状态
@@ -147,7 +147,7 @@ async def _human_intervention_node(state: GlobalState) -> GlobalState:
 **实现** (`_generate_summary_node`):
 ```python
 async def _generate_summary_node(state: GlobalState) -> GlobalState:
-    # 1. 更新状态（Phase.REPORT_GENERATION, TaskStatus.COMPLETED）
+    # 1. 更新状态（Phase.REPORT_GENERATION, StateTaskStatus.COMPLETED）
     # 2. 调用 Supervisor.generate_summary()
     # 3. 保存总结到 shared_context
     # 4. 错误处理

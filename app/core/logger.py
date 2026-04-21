@@ -12,6 +12,7 @@ import json
 from typing import Dict, Any, Optional
 from datetime import datetime
 from pathlib import Path
+from contextvars import ContextVar
 
 from .config import settings
 
@@ -119,6 +120,10 @@ class LangSmithHandler(logging.Handler):
             print(f"LangSmith 日志发送失败: {e}", file=sys.stderr)
 
 
+request_id_var: ContextVar[Optional[str]] = ContextVar("request_id", default=None)
+user_id_var: ContextVar[Optional[str]] = ContextVar("user_id", default=None)
+
+
 class ContextFilter(logging.Filter):
     """上下文过滤器，添加请求上下文信息"""
     
@@ -139,16 +144,13 @@ class ContextFilter(logging.Filter):
         
         # 尝试获取请求上下文（如果在 FastAPI 请求中）
         try:
-            from contextvars import copy_context
-            context = copy_context()
-            
             # 获取请求ID（如果存在）
-            request_id = context.get("request_id", None)
+            request_id = request_id_var.get()
             if request_id:
                 record.request_id = request_id
-            
+
             # 获取用户ID（如果存在）
-            user_id = context.get("user_id", None)
+            user_id = user_id_var.get()
             if user_id:
                 record.user_id = user_id
                 

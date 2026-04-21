@@ -6,10 +6,10 @@ LangGraph 状态定义模块
 
 """
 
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any
 from typing_extensions import TypedDict, NotRequired
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 
@@ -298,7 +298,7 @@ class StateFactory:
         optimization_level: str = "balanced"
     ) -> GlobalState:
         """创建初始的全局状态"""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         return GlobalState(
             task_id=task_id,
             user_id=user_id,
@@ -372,19 +372,19 @@ class StateUtils:
     def update_progress(state: GlobalState, progress: float) -> None:
         """更新全局状态的进度"""
         state["progress"] = max(0.0, min(1.0, progress))
-        state["updated_at"] = datetime.utcnow()
+        state["updated_at"] = datetime.now(timezone.utc)
     
     @staticmethod
     def add_code_version(state: GlobalState, new_code: str) -> None:
         """添加新的代码版本到历史记录"""
         state["code_versions"].append(new_code)
-        state["updated_at"] = datetime.utcnow()
+        state["updated_at"] = datetime.now(timezone.utc)
     
     @staticmethod
     def add_human_decision(state: GlobalState, decision: HumanDecision) -> None:
         """添加人工决策到历史记录"""
         state["decision_history"].append(decision)
-        state["updated_at"] = datetime.utcnow()
+        state["updated_at"] = datetime.now(timezone.utc)
     
     @staticmethod
     def set_human_intervention_required(
@@ -398,27 +398,27 @@ class StateUtils:
             state["pending_human_decision"] = decision_data
         elif not required and "pending_human_decision" in state:
             del state["pending_human_decision"]
-        state["updated_at"] = datetime.utcnow()
+        state["updated_at"] = datetime.now(timezone.utc)
     
     @staticmethod
     def increment_retry_count(state: GlobalState) -> None:
         """增加重试计数"""
         state["retry_count"] += 1
-        state["updated_at"] = datetime.utcnow()
+        state["updated_at"] = datetime.now(timezone.utc)
     
     @staticmethod
     def set_error(state: GlobalState, error_message: str) -> None:
         """设置错误信息"""
         state["last_error"] = error_message
         state["status"] = TaskStatus.FAILED
-        state["updated_at"] = datetime.utcnow()
+        state["updated_at"] = datetime.now(timezone.utc)
     
     @staticmethod
     def clear_error(state: GlobalState) -> None:
         """清除错误信息"""
         if "last_error" in state:
             del state["last_error"]
-        state["updated_at"] = datetime.utcnow()
+        state["updated_at"] = datetime.now(timezone.utc)
 
 
 # ============================================================================

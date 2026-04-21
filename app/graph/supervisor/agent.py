@@ -7,20 +7,16 @@ Supervisor Agent 是整个多智能体系统的全局调度主管，负责协调
 
 import json
 import asyncio
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, asdict
 from enum import Enum
 from datetime import datetime
 
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
-from pydantic import BaseModel, Field
-
 from app.graph.state import (
     GlobalState,
-    TaskStatus,
+    StateTaskStatus,
     Phase,
     CollaborationMode,
-    HumanDecision
 )
 from app.graph.supervisor.prompts import (
     get_task_analysis_prompt,
@@ -341,7 +337,7 @@ class SupervisorAgent:
                 "error_stack": self._get_error_stack(error),
                 "node_name": context.get('node_name', 'unknown'),
                 "phase": context.get('phase', 'unknown'),
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "execution_context": json.dumps(context, ensure_ascii=False, indent=2),
                 "previous_attempts": f"已重试 {retry_count} 次",
                 "retry_count": retry_count,
@@ -728,7 +724,7 @@ async def supervisor_analyze_task_node(state: GlobalState) -> GlobalState:
 
         # 更新状态
         state['shared_context']['task_plan'] = asdict(task_plan)
-        state['status'] = TaskStatus.ANALYZING
+        state['status'] = StateTaskStatus.ANALYZING
         state['current_phase'] = Phase.ANALYSIS
 
         logger.info(f"任务分析完成: {task_plan.task_type}")

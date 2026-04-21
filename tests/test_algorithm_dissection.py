@@ -603,7 +603,7 @@ class TestStateConversion:
     
     def test_convert_global_to_dissection_state(self):
         """测试全局状态到拆解状态的转换"""
-        from app.graph.state import GlobalState, TaskStatus, Phase, CollaborationMode
+        from app.graph.state import GlobalState, StateTaskStatus, Phase, CollaborationMode
         from datetime import datetime
         
         # 创建全局状态
@@ -613,7 +613,7 @@ class TestStateConversion:
             original_code="def test(): pass",
             language="python",
             optimization_level="balanced",
-            status=TaskStatus.ANALYZING,
+            status=StateTaskStatus.ANALYZING,
             current_phase=Phase.DISSECTION,
             progress=0.5,
             collaboration_mode=CollaborationMode.MASTER_EXPERT,
@@ -639,7 +639,7 @@ class TestStateConversion:
     
     def test_merge_dissection_to_global_state(self, sample_dissection_state):
         """测试拆解状态合并到全局状态"""
-        from app.graph.state import GlobalState, TaskStatus, Phase, CollaborationMode, AlgorithmExplanation
+        from app.graph.state import GlobalState, StateTaskStatus, Phase, CollaborationMode, AlgorithmExplanation
         from datetime import datetime
         
         # 创建全局状态
@@ -649,7 +649,7 @@ class TestStateConversion:
             original_code="def test(): pass",
             language="python",
             optimization_level="balanced",
-            status=TaskStatus.ANALYZING,
+            status=StateTaskStatus.ANALYZING,
             current_phase=Phase.DISSECTION,
             progress=0.5,
             collaboration_mode=CollaborationMode.MASTER_EXPERT,

@@ -14,7 +14,7 @@ from fastapi.websockets import WebSocketState
 from app.services.weaver_service import WeaverService
 from app.api.deps import get_graph_manager, get_config
 from app.graph.main_graph import MainGraphManager
-from app.graph.state import TaskStatus
+from app.graph.state import StateTaskStatus
 from app.core.config import Settings
 from app.core.logger import get_logger
 
@@ -249,7 +249,7 @@ async def handle_start_task(task_id: str, data: Dict[str, Any], websocket: WebSo
             "type": "task_started",
             "data": {
                 "task_id": task_id,
-                "status": TaskStatus.ANALYZING.value
+                "status": StateTaskStatus.ANALYZING.value
             }
         })
 
@@ -268,7 +268,7 @@ async def handle_start_task(task_id: str, data: Dict[str, Any], websocket: WebSo
             "type": "task_completed",
             "data": {
                 "task_id": task_id,
-                "status": TaskStatus.COMPLETED.value
+                "status": StateTaskStatus.COMPLETED.value
             }
         })
 
@@ -347,7 +347,7 @@ async def handle_cancel_task(task_id: str, websocket: WebSocket):
             "type": "task_canceled",
             "data": {
                 "task_id": task_id,
-                "status": TaskStatus.CANCELED.value
+                "status": StateTaskStatus.CANCELED.value
             }
         })
 

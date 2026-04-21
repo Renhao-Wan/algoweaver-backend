@@ -6,12 +6,13 @@ Weaver Service 业务逻辑层
 """
 
 from typing import Dict, Any, AsyncGenerator, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 from app.graph.main_graph import MainGraphManager
-from app.graph.state import GlobalState, TaskStatus, Phase
-from app.schemas.requests import TaskRequest, OptimizationLevel
+from app.graph.state import GlobalState, Phase
+from app.graph.state import StateTaskStatus
+from app.schemas.requests import TaskRequest, OptimizationLevel, ReportGenerationRequest
 from app.schemas.responses import (
     TaskCreationResponse,
     TaskStatusResponse,
@@ -23,12 +24,15 @@ from app.schemas.responses import (
     ValidationResult,
     PerformanceMetrics,
     ImpactAssessment,
+    ReportResponse,
     IssueType,
     Severity,
-    ImprovementType
+    ImprovementType,
+    ResponseTaskStatus
 )
 from app.core.logger import get_logger
 from app.core.config import Settings
+from app.utils.report_generator import ReportGenerator, ReportFormat, ReportTemplate
 
 logger = get_logger(__name__)
 
@@ -50,6 +54,7 @@ class WeaverService:
         """
         self.graph_manager = graph_manager
         self.settings = settings
+        self.report_generator = ReportGenerator()
 
     async def create_task(self, request: TaskRequest) -> TaskCreationResponse:
         """
@@ -76,7 +81,7 @@ class WeaverService:
             success=True,
             message="任务创建成功",
             task_id=task_id,
-            status=TaskStatus.CREATED,
+            status=ResponseTaskStatus.CREATED,
             estimated_duration_seconds=estimated_duration,
             websocket_url=websocket_url
         )
@@ -171,25 +176,30 @@ class WeaverService:
                     success=False,
                     message="任务不存在",
                     task_id=task_id,
-                    status=TaskStatus.FAILED,
+                    status=ResponseTaskStatus.FAILED,
                     progress_percent=0,
                     current_phase="unknown",
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
+                    created_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(timezone.utc)
                 )
 
             # 构建响应
+            # 将状态从 StateTaskStatus 转换为 ResponseTaskStatus
+            state_status = state.get("status", StateTaskStatus.PENDING)
+            # 映射状态值
+            response_status = ResponseTaskStatus(state_status.value) if hasattr(state_status, 'value') else ResponseTaskStatus.PENDING
+
             return TaskStatusResponse(
                 success=True,
                 message="查询成功",
                 task_id=task_id,
-                status=state.get("status", TaskStatus.PENDING),
+                status=response_status,
                 progress_percent=int(state.get("progress", 0) * 100),
-                current_phase=state.get("current_phase", Phase.INITIALIZATION).value,
-                created_at=state.get("created_at", datetime.utcnow()),
-                updated_at=state.get("updated_at", datetime.utcnow()),
+                current_phase=state.get("current_phase", Phase.ANALYSIS).value,
+                created_at=state.get("created_at", datetime.now(timezone.utc)),
+                updated_at=state.get("updated_at", datetime.now(timezone.utc)),
                 result=state.get("shared_context", {}).get("final_summary"),
-                logs=state.get("execution_logs", [])
+                logs=None  # execution_logs 字段不存在于 GlobalState
             )
 
         except Exception as e:
@@ -220,7 +230,9 @@ class WeaverService:
 
             # 提取结果数据
             original_code = state.get("original_code", "")
-            optimized_code = state.get("optimized_code")
+            # 使用最新的代码版本作为优化后代码
+            code_versions = state.get("code_versions", [])
+            optimized_code = code_versions[-1] if len(code_versions) > 1 else None
 
             # 构建算法讲解
             explanation = self._build_explanation(state)
@@ -248,7 +260,7 @@ class WeaverService:
                 suggestions=suggestions,
                 validation_result=validation_result,
                 performance_metrics=performance_metrics,
-                optimization_history=state.get("optimization_history", [])
+                optimization_history=state.get("shared_context", {}).get("optimization_history", [])
             )
 
         except Exception as e:
@@ -342,10 +354,9 @@ class WeaverService:
             return "初始化中..."
 
         phase_messages = {
-            Phase.INITIALIZATION: "初始化任务...",
+            Phase.ANALYSIS: "分析任务...",
             Phase.DISSECTION: "分析算法执行步骤...",
             Phase.REVIEW: "检测代码问题并生成优化建议...",
-            Phase.HUMAN_INTERVENTION: "等待用户确认...",
             Phase.REPORT_GENERATION: "生成教学报告..."
         }
         return phase_messages.get(phase, "处理中...")
@@ -360,31 +371,43 @@ class WeaverService:
         Returns:
             AlgorithmExplanation: 算法讲解
         """
-        dissection_result = state.get("dissection_result", {})
+        # 从 algorithm_explanation 或 shared_context 获取算法分析结果
+        algorithm_explanation = state.get("algorithm_explanation")
 
-        # 提取步骤
-        steps_data = dissection_result.get("steps", [])
-        steps = [
-            ExecutionStep(
-                step_number=i + 1,
-                description=step.get("description", ""),
-                code_snippet=step.get("code_snippet"),
-                variables_state=step.get("variables_state"),
-                time_complexity=step.get("time_complexity"),
-                space_complexity=step.get("space_complexity")
+        if algorithm_explanation:
+            # 如果有 algorithm_explanation，直接使用
+            steps = [
+                ExecutionStep(
+                    step_number=step.step_number,
+                    description=step.description,
+                    code_snippet=step.code_snippet,
+                    variables_state=step.variables_state,
+                    time_complexity=step.time_complexity,
+                    space_complexity=step.space_complexity
+                )
+                for step in algorithm_explanation.steps
+            ]
+
+            return AlgorithmExplanation(
+                algorithm_name=state.get("shared_context", {}).get("dissection_result", {}).get("algorithm_type", "未知算法"),
+                steps=steps,
+                pseudocode=algorithm_explanation.pseudocode,
+                time_complexity=algorithm_explanation.time_complexity,
+                space_complexity=algorithm_explanation.space_complexity,
+                visualization=algorithm_explanation.visualization,
+                key_insights=algorithm_explanation.key_insights
             )
-            for i, step in enumerate(steps_data)
-        ]
-
-        return AlgorithmExplanation(
-            algorithm_name=dissection_result.get("algorithm_name", "未知算法"),
-            steps=steps,
-            pseudocode=dissection_result.get("pseudocode", ""),
-            time_complexity=dissection_result.get("time_complexity", "O(n)"),
-            space_complexity=dissection_result.get("space_complexity", "O(1)"),
-            visualization=dissection_result.get("visualization"),
-            key_insights=dissection_result.get("key_insights", [])
-        )
+        else:
+            # 兜底：返回空的算法讲解
+            return AlgorithmExplanation(
+                algorithm_name="未知算法",
+                steps=[],
+                pseudocode="",
+                time_complexity="O(n)",
+                space_complexity="O(1)",
+                visualization=None,
+                key_insights=[]
+            )
 
     def _build_issues(self, state: GlobalState) -> list[CodeIssue]:
         """
@@ -396,22 +419,38 @@ class WeaverService:
         Returns:
             list[CodeIssue]: 问题列表
         """
-        review_result = state.get("review_result", {})
-        issues_data = review_result.get("issues", [])
+        # 直接从 detected_issues 获取问题列表
+        detected_issues = state.get("detected_issues", [])
 
         issues = []
-        for issue_data in issues_data:
-            issue = CodeIssue(
-                issue_id=issue_data.get("issue_id", str(uuid.uuid4())),
-                type=IssueType(issue_data.get("type", "logic_error")),
-                severity=Severity(issue_data.get("severity", "medium")),
-                line_number=issue_data.get("line_number", 0),
-                column_number=issue_data.get("column_number"),
-                description=issue_data.get("description", ""),
-                suggestion=issue_data.get("suggestion", ""),
-                example_fix=issue_data.get("example_fix"),
-                impact_assessment=issue_data.get("impact_assessment")
-            )
+        for issue_data in detected_issues:
+            # 处理 Pydantic 模型或字典
+            if hasattr(issue_data, 'issue_id'):
+                # 已经是 Pydantic 模型
+                issue = CodeIssue(
+                    issue_id=issue_data.issue_id,
+                    type=issue_data.type,
+                    severity=issue_data.severity,
+                    line_number=issue_data.line_number,
+                    column_number=getattr(issue_data, 'column_number', None),
+                    description=issue_data.description,
+                    suggestion=issue_data.suggestion,
+                    example_fix=issue_data.example_fix,
+                    impact_assessment=getattr(issue_data, 'impact_assessment', None)
+                )
+            else:
+                # 字典格式
+                issue = CodeIssue(
+                    issue_id=issue_data.get("issue_id", str(uuid.uuid4())),
+                    type=IssueType(issue_data.get("type", "logic_error")),
+                    severity=Severity(issue_data.get("severity", "medium")),
+                    line_number=issue_data.get("line_number", 0),
+                    column_number=issue_data.get("column_number"),
+                    description=issue_data.get("description", ""),
+                    suggestion=issue_data.get("suggestion", ""),
+                    example_fix=issue_data.get("example_fix"),
+                    impact_assessment=issue_data.get("impact_assessment")
+                )
             issues.append(issue)
 
         return issues
@@ -426,32 +465,54 @@ class WeaverService:
         Returns:
             list[Suggestion]: 建议列表
         """
-        review_result = state.get("review_result", {})
-        suggestions_data = review_result.get("suggestions", [])
+        # 直接从 optimization_suggestions 获取建议列表
+        optimization_suggestions = state.get("optimization_suggestions", [])
 
         suggestions = []
-        for sugg_data in suggestions_data:
-            # 构建影响评估
-            impact_data = sugg_data.get("impact_assessment", {})
-            impact = ImpactAssessment(
-                performance_impact=impact_data.get("performance_impact", "无影响"),
-                readability_impact=impact_data.get("readability_impact", "无影响"),
-                maintainability_impact=impact_data.get("maintainability_impact", "无影响"),
-                risk_level=Severity(impact_data.get("risk_level", "low"))
-            )
+        for sugg_data in optimization_suggestions:
+            # 处理 Pydantic 模型或字典
+            if hasattr(sugg_data, 'suggestion_id'):
+                # 已经是 Pydantic 模型
+                suggestion = Suggestion(
+                    suggestion_id=sugg_data.suggestion_id,
+                    issue_id=sugg_data.issue_id,
+                    improvement_type=ImprovementType(sugg_data.improvement_type),
+                    title=sugg_data.improvement_type,  # 使用 improvement_type 作为 title
+                    description=sugg_data.explanation,
+                    original_code=sugg_data.original_code,
+                    improved_code=sugg_data.improved_code,
+                    explanation=sugg_data.explanation,
+                    impact_assessment=ImpactAssessment(
+                        performance_impact="待评估",
+                        readability_impact="待评估",
+                        maintainability_impact="待评估",
+                        risk_level=Severity.LOW
+                    ),
+                    confidence_score=sugg_data.impact_score / 10.0  # 转换为 0-1 范围
+                )
+            else:
+                # 字典格式
+                # 构建影响评估
+                impact_data = sugg_data.get("impact_assessment", {})
+                impact = ImpactAssessment(
+                    performance_impact=impact_data.get("performance_impact", "无影响"),
+                    readability_impact=impact_data.get("readability_impact", "无影响"),
+                    maintainability_impact=impact_data.get("maintainability_impact", "无影响"),
+                    risk_level=Severity(impact_data.get("risk_level", "low"))
+                )
 
-            suggestion = Suggestion(
-                suggestion_id=sugg_data.get("suggestion_id", str(uuid.uuid4())),
-                issue_id=sugg_data.get("issue_id", ""),
-                improvement_type=ImprovementType(sugg_data.get("improvement_type", "code_refactoring")),
-                title=sugg_data.get("title", ""),
-                description=sugg_data.get("description", ""),
-                original_code=sugg_data.get("original_code", ""),
-                improved_code=sugg_data.get("improved_code", ""),
-                explanation=sugg_data.get("explanation", ""),
-                impact_assessment=impact,
-                confidence_score=sugg_data.get("confidence_score", 0.5)
-            )
+                suggestion = Suggestion(
+                    suggestion_id=sugg_data.get("suggestion_id", str(uuid.uuid4())),
+                    issue_id=sugg_data.get("issue_id", ""),
+                    improvement_type=ImprovementType(sugg_data.get("improvement_type", "code_refactoring")),
+                    title=sugg_data.get("title", ""),
+                    description=sugg_data.get("description", ""),
+                    original_code=sugg_data.get("original_code", ""),
+                    improved_code=sugg_data.get("improved_code", ""),
+                    explanation=sugg_data.get("explanation", ""),
+                    impact_assessment=impact,
+                    confidence_score=sugg_data.get("confidence_score", 0.5)
+                )
             suggestions.append(suggestion)
 
         return suggestions
@@ -466,8 +527,8 @@ class WeaverService:
         Returns:
             Optional[ValidationResult]: 验证结果
         """
-        review_result = state.get("review_result", {})
-        validation_data = review_result.get("validation_result")
+        # 从 shared_context 获取验证结果
+        validation_data = state.get("shared_context", {}).get("review_result", {}).get("validation_results")
 
         if not validation_data:
             return None
@@ -505,7 +566,8 @@ class WeaverService:
         Returns:
             Optional[PerformanceMetrics]: 性能指标
         """
-        perf_data = state.get("performance_metrics")
+        # 从 shared_context 获取性能指标
+        perf_data = state.get("shared_context", {}).get("performance_metrics")
 
         if not perf_data:
             return None
@@ -520,3 +582,130 @@ class WeaverService:
             max_time_ms=perf_data.get("max_time_ms", 0),
             std_deviation_ms=perf_data.get("std_deviation_ms", 0)
         )
+
+    # ========================================================================
+    # 报告生成方法
+    # ========================================================================
+
+    async def generate_report(
+        self,
+        task_id: str,
+        request: Optional[ReportGenerationRequest] = None
+    ) -> ReportResponse:
+        """
+        生成教学报告
+
+        Args:
+            task_id: 任务ID
+            request: 报告生成请求（可选）
+
+        Returns:
+            ReportResponse: 报告响应
+        """
+        logger.info(f"生成教学报告: {task_id}")
+
+        # 构建任务配置
+        config = {"configurable": {"thread_id": task_id}}
+
+        try:
+            # 获取状态
+            state = await self.graph_manager.get_state(config)
+
+            if not state:
+                raise ValueError(f"任务不存在: {task_id}")
+
+            # 解析请求参数
+            if request:
+                report_format = ReportFormat(request.format)
+                template = ReportTemplate(request.template)
+                include_history = request.include_history
+            else:
+                report_format = ReportFormat.MARKDOWN
+                template = ReportTemplate.DEFAULT
+                include_history = True
+
+            # 生成报告
+            if report_format == ReportFormat.MARKDOWN:
+                report_content = self.report_generator.generate_markdown_report(
+                    state,
+                    template=template,
+                    include_history=include_history
+                )
+            else:
+                raise NotImplementedError(f"暂不支持格式: {report_format}")
+
+            # 保存报告（这里简化处理，实际应该保存到文件系统或对象存储）
+            report_id = str(uuid.uuid4())
+            report_filename = f"report_{task_id}_{report_id}.md"
+
+            # TODO: 实际保存到文件系统
+            # report_path = os.path.join(self.settings.reports_dir, report_filename)
+            # with open(report_path, 'w', encoding='utf-8') as f:
+            #     f.write(report_content)
+
+            # 构建响应
+            report_url = f"http://{self.settings.host}:{self.settings.port}/reports/{report_filename}"
+            expires_at = datetime.now(timezone.utc).replace(hour=23, minute=59, second=59)  # 当天结束
+
+            return ReportResponse(
+                success=True,
+                message="报告生成成功",
+                report_id=report_id,
+                report_url=report_url,
+                format=report_format.value,
+                size_bytes=len(report_content.encode('utf-8')),
+                expires_at=expires_at
+            )
+
+        except Exception as e:
+            logger.error(f"生成报告失败: {task_id}, 错误: {str(e)}")
+            raise
+
+    async def get_report_content(
+        self,
+        task_id: str,
+        format: str = "markdown",
+        template: str = "default",
+        include_history: bool = True
+    ) -> str:
+        """
+        获取报告内容（不保存文件）
+
+        Args:
+            task_id: 任务ID
+            format: 报告格式
+            template: 报告模板
+            include_history: 是否包含优化历史
+
+        Returns:
+            str: 报告内容
+        """
+        logger.info(f"获取报告内容: {task_id}")
+
+        # 构建任务配置
+        config = {"configurable": {"thread_id": task_id}}
+
+        try:
+            # 获取状态
+            state = await self.graph_manager.get_state(config)
+
+            if not state:
+                raise ValueError(f"任务不存在: {task_id}")
+
+            # 生成报告
+            report_format = ReportFormat(format)
+            report_template = ReportTemplate(template)
+
+            if report_format == ReportFormat.MARKDOWN:
+                return self.report_generator.generate_markdown_report(
+                    state,
+                    template=report_template,
+                    include_history=include_history
+                )
+            else:
+                raise NotImplementedError(f"暂不支持格式: {report_format}")
+
+        except Exception as e:
+            logger.error(f"获取报告内容失败: {task_id}, 错误: {str(e)}")
+            raise
+

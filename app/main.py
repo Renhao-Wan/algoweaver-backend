@@ -4,13 +4,15 @@ FastAPI 应用入口
 负责创建 FastAPI 实例、配置中间件、注册路由和 WebSocket 端点。
 """
 from contextlib import asynccontextmanager
+from uuid import uuid4
+from typing import Any, cast
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 from app.core.config import get_settings
-from app.core.logger import setup_logging, get_logger
+from app.core.logger import setup_logging, get_logger, request_id_var, user_id_var
 
 # 初始化配置和日志
 settings = get_settings()
@@ -46,12 +48,29 @@ def create_app() -> FastAPI:
 
     # 配置 CORS 中间件
     app.add_middleware(
-        CORSMiddleware,
+        cast(Any, CORSMiddleware),
         allow_origins=settings.cors_origins,
         allow_credentials=settings.cors_allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def request_context_middleware(request: Request, call_next):
+        """写入请求上下文，供日志过滤器读取。"""
+        request_id = request.headers.get("X-Request-Id") or str(uuid4())
+        user_id = request.headers.get("X-User-Id")
+
+        request_token = request_id_var.set(request_id)
+        user_token = user_id_var.set(user_id)
+
+        try:
+            response = await call_next(request)
+            response.headers["X-Request-Id"] = request_id
+            return response
+        finally:
+            request_id_var.reset(request_token)
+            user_id_var.reset(user_token)
 
     # 注册路由
     from app.api.routes import chat, websocket

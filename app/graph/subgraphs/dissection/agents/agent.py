@@ -6,17 +6,13 @@
 - VisualGeneratorAgent: 可视化生成智能体
 """
 
-import asyncio
 import json
 import re
-from typing import Dict, List, Any, Optional, Tuple
-from dataclasses import dataclass, asdict
+from typing import Dict, List, Any, Optional
+from dataclasses import dataclass
 from enum import Enum
 
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import PydanticOutputParser
-from pydantic import BaseModel, Field
+from langchain_core.messages import HumanMessage
 
 from app.graph.state import DissectionState, ExecutionStep, AlgorithmExplanation
 from app.graph.tools.python_repl import PythonSandbox

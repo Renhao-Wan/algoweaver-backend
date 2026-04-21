@@ -11,7 +11,7 @@ from datetime import datetime
 
 from app.graph.state import (
     GlobalState,
-    TaskStatus,
+    StateTaskStatus,
     Phase,
     CollaborationMode
 )
@@ -54,7 +54,7 @@ class TestSupervisorAgent:
             original_code="def test(): pass",
             language="python",
             optimization_level="balanced",
-            status=TaskStatus.PENDING,
+            status=StateTaskStatus.PENDING,
             current_phase=Phase.ANALYSIS,
             progress=0.0,
             collaboration_mode=CollaborationMode.MASTER_EXPERT,
@@ -201,7 +201,7 @@ class TestSupervisorAgent:
     async def test_generate_summary(self, supervisor, sample_state):
         """测试总结生成"""
         # 添加一些执行结果
-        sample_state['status'] = TaskStatus.COMPLETED
+        sample_state['status'] = StateTaskStatus.COMPLETED
         sample_state['progress'] = 1.0
         sample_state['algorithm_explanation'] = Mock()
         sample_state['detected_issues'] = [Mock(), Mock()]

@@ -11,7 +11,7 @@ from datetime import datetime
 
 from app.graph.state import (
     GlobalState,
-    TaskStatus,
+    StateTaskStatus,
     Phase,
     CollaborationMode,
     AlgorithmExplanation,
@@ -54,7 +54,7 @@ class TestMainGraphBuilder:
             original_code="def test(): pass",
             language="python",
             optimization_level="balanced",
-            status=TaskStatus.PENDING,
+            status=StateTaskStatus.PENDING,
             current_phase=Phase.ANALYSIS,
             progress=0.0,
             collaboration_mode=CollaborationMode.MASTER_EXPERT,
@@ -163,7 +163,7 @@ class TestMainGraphBuilder:
             result = await builder._call_dissection_subgraph(sample_state)
 
             assert result["current_phase"] == Phase.DISSECTION
-            assert result["status"] == TaskStatus.ANALYZING
+            assert result["status"] == StateTaskStatus.ANALYZING
 
     @pytest.mark.asyncio
     async def test_call_review_subgraph(self, builder, sample_state):
@@ -184,7 +184,7 @@ class TestMainGraphBuilder:
             result = await builder._call_review_subgraph(sample_state)
 
             assert result["current_phase"] == Phase.REVIEW
-            assert result["status"] == TaskStatus.OPTIMIZING
+            assert result["status"] == StateTaskStatus.OPTIMIZING
 
     @pytest.mark.asyncio
     async def test_human_intervention_node(self, builder, sample_state):
@@ -204,7 +204,7 @@ class TestMainGraphBuilder:
         with patch('app.graph.main_graph.interrupt', return_value={"action": "continue"}):
             result = await builder._human_intervention_node(sample_state)
 
-            assert result["status"] == TaskStatus.ANALYZING
+            assert result["status"] == StateTaskStatus.ANALYZING
             assert result["human_intervention_required"] is False
 
     @pytest.mark.asyncio
@@ -220,7 +220,7 @@ class TestMainGraphBuilder:
         with patch('app.graph.main_graph.interrupt', return_value={"action": "cancel"}):
             result = await builder._human_intervention_node(sample_state)
 
-            assert result["status"] == TaskStatus.CANCELED
+            assert result["status"] == StateTaskStatus.CANCELED
 
     @pytest.mark.asyncio
     async def test_generate_summary_node(self, builder, sample_state):
@@ -231,7 +231,7 @@ class TestMainGraphBuilder:
 
         result = await builder._generate_summary_node(sample_state)
 
-        assert result["status"] == TaskStatus.COMPLETED
+        assert result["status"] == StateTaskStatus.COMPLETED
         assert result["progress"] == 1.0
         assert result["current_phase"] == Phase.REPORT_GENERATION
         assert result["shared_context"]["final_summary"] == mock_summary
@@ -281,7 +281,7 @@ class TestMainGraphBuilder:
 
         result = await builder._handle_error_node(sample_state)
 
-        assert result["status"] == TaskStatus.FAILED
+        assert result["status"] == StateTaskStatus.FAILED
 
     @pytest.mark.asyncio
     async def test_handle_error_node_human_intervention(self, builder, sample_state):
@@ -330,7 +330,7 @@ class TestMainGraphManager:
             original_code="def test(): pass",
             language="python",
             optimization_level="balanced",
-            status=TaskStatus.PENDING,
+            status=StateTaskStatus.PENDING,
             current_phase=Phase.ANALYSIS,
             progress=0.0,
             collaboration_mode=CollaborationMode.MASTER_EXPERT,

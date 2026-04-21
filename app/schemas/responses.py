@@ -4,13 +4,13 @@ API 响应模型定义
 定义所有 API 响应的统一格式，确保前端能够正确解析和处理响应数据。
 """
 
-from typing import Optional, List, Dict, Any, Union
-from datetime import datetime
+from typing import Optional, List, Dict, Any
+from datetime import datetime, timezone
 from enum import Enum
 from pydantic import BaseModel, Field
 
 
-class TaskStatus(str, Enum):
+class ResponseTaskStatus(str, Enum):
     """任务状态枚举"""
     CREATED = "created"
     PENDING = "pending"
@@ -28,7 +28,7 @@ class IssueType(str, Enum):
     BOUNDARY_CONDITION = "boundary_condition"
     PERFORMANCE = "performance"
     SECURITY = "security"
-    STYLE = "style"
+    READABILITY = "readability"
     MAINTAINABILITY = "maintainability"
 
 
@@ -64,7 +64,7 @@ class BaseResponse(BaseModel):
     )
     
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(timezone.utc),
         description="响应时间戳"
     )
     
@@ -375,8 +375,8 @@ class TaskCreationResponse(BaseResponse):
         description="任务唯一标识"
     )
     
-    status: TaskStatus = Field(
-        default=TaskStatus.CREATED,
+    status: ResponseTaskStatus = Field(
+        default=ResponseTaskStatus.CREATED,
         description="任务状态"
     )
     
@@ -399,7 +399,7 @@ class TaskStatusResponse(BaseResponse):
         description="任务ID"
     )
     
-    status: TaskStatus = Field(
+    status: ResponseTaskStatus = Field(
         ...,
         description="任务状态"
     )

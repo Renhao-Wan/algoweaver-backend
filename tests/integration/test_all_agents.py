@@ -17,7 +17,7 @@ from datetime import datetime
 
 from app.graph.state import (
     GlobalState, DissectionState, ReviewState,
-    TaskStatus, Phase, CollaborationMode,
+    StateTaskStatus, Phase, CollaborationMode,
     StateConverter, StateFactory
 )
 from app.graph.subgraphs.dissection.nodes import (
@@ -375,7 +375,7 @@ class TestStateConsistency:
             optimization_level="balanced"
         )
         assert global_state['task_id'] == "test-factory-1"
-        assert global_state['status'] == TaskStatus.PENDING
+        assert global_state['status'] == StateTaskStatus.PENDING
         assert global_state['current_phase'] == Phase.ANALYSIS
 
         # 测试拆解状态

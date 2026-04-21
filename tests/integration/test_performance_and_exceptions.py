@@ -16,7 +16,7 @@ from datetime import datetime
 
 from app.graph.state import (
     GlobalState, DissectionState, ReviewState,
-    TaskStatus, Phase, CollaborationMode,
+    StateTaskStatus, Phase, CollaborationMode,
     StateConverter, StateFactory
 )
 
@@ -327,7 +327,7 @@ class TestRegressionTests:
 
         # 验证所有状态的结构一致
         for state in states:
-            assert state['status'] == TaskStatus.PENDING
+            assert state['status'] == StateTaskStatus.PENDING
             assert state['current_phase'] == Phase.ANALYSIS
             assert len(state['code_versions']) == 1
 

@@ -17,8 +17,8 @@ LangGraph 状态定义模块（重构版）
 
 from typing import Dict, List, Optional, Any, Union
 from typing_extensions import TypedDict, NotRequired
-from pydantic import BaseModel, Field, validator
-from datetime import datetime
+from pydantic import BaseModel, Field
+from datetime import datetime, timezone
 from enum import Enum
 
 
@@ -26,7 +26,7 @@ from enum import Enum
 # 枚举类型定义
 # ============================================================================
 
-class TaskStatus(str, Enum):
+class StateTaskStatus(str, Enum):
     """任务执行状态"""
     PENDING = "pending"
     ANALYZING = "analyzing"
@@ -149,7 +149,7 @@ class GlobalState(TypedDict):
     optimization_level: str  # "fast", "balanced", "thorough"
 
     # === 执行状态（必需） ===
-    status: TaskStatus
+    status: StateTaskStatus
     current_phase: Phase
     progress: float  # 0.0 - 1.0
 
@@ -178,7 +178,7 @@ class GlobalState(TypedDict):
     updated_at: datetime
 
     # === 错误处理（可选） ===
-    last_error: NotRequired[str]
+    last_error: NotRequired[str] | None
     retry_count: int
 
 
@@ -302,14 +302,14 @@ class StateFactory:
         optimization_level: str = "balanced"
     ) -> GlobalState:
         """创建初始的全局状态"""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         return GlobalState(
             task_id=task_id,
             user_id=user_id,
             original_code=code,
             language=language,
             optimization_level=optimization_level,
-            status=TaskStatus.PENDING,
+            status=StateTaskStatus.PENDING,
             current_phase=Phase.ANALYSIS,
             progress=0.0,
             collaboration_mode=CollaborationMode.MASTER_EXPERT,
@@ -516,7 +516,7 @@ class StateUtils:
         state['error_info'] = error_message
         if isinstance(state, GlobalState):
             state['last_error'] = error_message
-            state['status'] = TaskStatus.FAILED
+            state['status'] = StateTaskStatus.FAILED
         state['updated_at'] = datetime.utcnow() if 'updated_at' in state else None
 
     @staticmethod

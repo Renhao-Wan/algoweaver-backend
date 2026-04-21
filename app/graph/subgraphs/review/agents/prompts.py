@@ -8,7 +8,6 @@
 """
 
 from langchain_core.prompts import ChatPromptTemplate
-from typing import Dict, Any
 
 
 class ReviewPrompts:

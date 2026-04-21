@@ -18,7 +18,7 @@ from .requests import (
 
 # 响应模型
 from .responses import (
-    TaskStatus,
+    ResponseTaskStatus,
     IssueType,
     Severity,
     ImprovementType,
@@ -44,8 +44,8 @@ from .responses import (
 __all__ = [
     # 枚举类型
     "OptimizationLevel",
-    "ProgrammingLanguage", 
-    "TaskStatus",
+    "ProgrammingLanguage",
+    "ResponseTaskStatus",
     "IssueType",
     "Severity",
     "ImprovementType",

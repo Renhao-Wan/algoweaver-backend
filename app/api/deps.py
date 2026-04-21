@@ -4,8 +4,7 @@ API 依赖注入模块
 提供 FastAPI 路由所需的依赖项，包括配置、LLM 实例、Graph 实例等。
 """
 
-from typing import Generator, Optional
-from functools import lru_cache
+from typing import Optional
 
 from fastapi import Depends, HTTPException, status
 from langchain_openai import ChatOpenAI
@@ -36,12 +35,15 @@ def get_config() -> Settings:
 # LLM 依赖
 # ============================================================================
 
-@lru_cache()
+# 全局 LLM 实例缓存
+_llm_instance: Optional[ChatOpenAI] = None
+
+
 def get_llm(settings: Settings = Depends(get_config)) -> ChatOpenAI:
     """
     获取 LLM 实例
 
-    使用缓存确保单例，避免重复创建 LLM 实例。
+    使用全局变量缓存确保单例，避免重复创建 LLM 实例。
 
     Args:
         settings: 应用配置
@@ -49,36 +51,43 @@ def get_llm(settings: Settings = Depends(get_config)) -> ChatOpenAI:
     Returns:
         ChatOpenAI: LLM 实例
     """
-    try:
-        llm = ChatOpenAI(
-            api_key=settings.llm_api_key,
-            base_url=settings.llm_api_base,
-            model=settings.llm_model,
-            temperature=settings.llm_temperature,
-            max_tokens=settings.llm_max_tokens,
-        )
-        logger.debug(f"创建 LLM 实例: {settings.llm_model}")
-        return llm
-    except Exception as e:
-        logger.error(f"创建 LLM 实例失败: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"LLM 初始化失败: {str(e)}"
-        )
+    global _llm_instance
+
+    if _llm_instance is None:
+        try:
+            _llm_instance = ChatOpenAI(
+                api_key=settings.llm_api_key,
+                base_url=settings.llm_api_base,
+                model=settings.llm_model,
+                temperature=settings.llm_temperature,
+                max_tokens=settings.llm_max_tokens,
+            )
+            logger.debug(f"创建 LLM 实例: {settings.llm_model}")
+        except Exception as e:
+            logger.error(f"创建 LLM 实例失败: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"LLM 初始化失败: {str(e)}"
+            )
+
+    return _llm_instance
 
 
 # ============================================================================
 # Graph 依赖
 # ============================================================================
 
-@lru_cache()
+# 全局 Graph Manager 实例缓存
+_graph_manager_instance: Optional[MainGraphManager] = None
+
+
 def get_graph_manager(
     llm: ChatOpenAI = Depends(get_llm)
 ) -> MainGraphManager:
     """
     获取主图管理器实例
 
-    使用缓存确保单例，避免重复构建图。
+    使用全局变量缓存确保单例，避免重复构建图。
 
     Args:
         llm: LLM 实例
@@ -86,20 +95,30 @@ def get_graph_manager(
     Returns:
         MainGraphManager: 主图管理器实例
     """
-    try:
-        # 创建 Checkpointer（使用内存存储）
-        checkpointer = MemorySaver()
+    global _graph_manager_instance
 
-        # 创建主图管理器
-        manager = MainGraphManager(llm=llm, checkpointer=checkpointer)
-        logger.info("主图管理器创建成功")
-        return manager
-    except Exception as e:
-        logger.error(f"创建主图管理器失败: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Graph 初始化失败: {str(e)}"
-        )
+    if _graph_manager_instance is None:
+        try:
+            # 创建 Checkpointer（使用内存存储）
+            checkpointer = MemorySaver()
+
+            # 创建主图管理器
+            _graph_manager_instance = MainGraphManager(llm=llm, checkpointer=checkpointer)
+            logger.info("主图管理器创建成功")
+
+            if _graph_manager_instance is None :
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Graph 初始化失败"
+                )
+        except Exception as e:
+            logger.error(f"创建主图管理器失败: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Graph 初始化失败: {str(e)}"
+            )
+
+    return _graph_manager_instance
 
 
 # ============================================================================
@@ -166,6 +185,7 @@ def clear_dependency_cache():
 
     用于测试或配置更新后重新初始化依赖。
     """
-    get_llm.cache_clear()
-    get_graph_manager.cache_clear()
+    global _llm_instance, _graph_manager_instance
+    _llm_instance = None
+    _graph_manager_instance = None
     logger.info("依赖缓存已清除")

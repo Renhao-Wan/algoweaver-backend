@@ -7,18 +7,15 @@
 - ValidationTesterAgent: 验证测试智能体
 """
 
-import asyncio
 import json
 import re
 import uuid
 import time
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
 
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
-from langchain_core.prompts import ChatPromptTemplate
-from pydantic import BaseModel, Field
+from langchain_core.messages import HumanMessage
 
 from app.graph.state import (
     ReviewState,
@@ -669,7 +666,7 @@ class ValidationTesterAgent:
         code: str,
         language: str,
         optimization_level: str
-    ) -> Dict[str, float]:
+    ) -> dict[str, float] | dict[str, float | str] | Any:
         """评估代码质量"""
         try:
             # 使用 LLM 评估代码质量

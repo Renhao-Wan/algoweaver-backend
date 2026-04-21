@@ -19,15 +19,15 @@
 - 错误恢复：自动重试和降级处理
 """
 
-from typing import Dict, Any, Literal
-from datetime import datetime
-from langgraph.graph import StateGraph, END, START
+from typing import Dict, Any
+from datetime import datetime, timezone
+from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import interrupt
 
 from app.graph.state import (
     GlobalState,
-    TaskStatus,
+    StateTaskStatus,
     Phase,
     StateConverter,
     HumanDecision
@@ -243,8 +243,8 @@ class MainGraphBuilder:
         try:
             # 更新状态
             state["current_phase"] = Phase.DISSECTION
-            state["status"] = TaskStatus.ANALYZING
-            state["updated_at"] = datetime.utcnow()
+            state["status"] = StateTaskStatus.ANALYZING
+            state["updated_at"] = datetime.now(timezone.utc)
 
             # 使用 StateConverter 转换状态
             dissection_state = StateConverter.global_to_dissection(state)
@@ -279,8 +279,8 @@ class MainGraphBuilder:
         try:
             # 更新状态
             state["current_phase"] = Phase.REVIEW
-            state["status"] = TaskStatus.OPTIMIZING
-            state["updated_at"] = datetime.utcnow()
+            state["status"] = StateTaskStatus.OPTIMIZING
+            state["updated_at"] = datetime.now(timezone.utc)
 
             # 使用 StateConverter 转换状态
             review_state = StateConverter.global_to_review(state)
@@ -316,8 +316,8 @@ class MainGraphBuilder:
 
         try:
             # 更新状态
-            state["status"] = TaskStatus.WAITING_HUMAN
-            state["updated_at"] = datetime.utcnow()
+            state["status"] = StateTaskStatus.WAITING_HUMAN
+            state["updated_at"] = datetime.now(timezone.utc)
 
             # 获取待决策的内容
             pending_decision = state.get("pending_human_decision", {})
@@ -361,10 +361,10 @@ class MainGraphBuilder:
 
                 # 根据用户决策更新状态
                 if user_decision.get("action") == "cancel":
-                    state["status"] = TaskStatus.CANCELED
+                    state["status"] = StateTaskStatus.CANCELED
                     logger.info("用户取消任务")
                 else:
-                    state["status"] = TaskStatus.ANALYZING
+                    state["status"] = StateTaskStatus.ANALYZING
                     logger.info("用户确认继续执行")
 
         except Exception as e:
@@ -388,9 +388,9 @@ class MainGraphBuilder:
         try:
             # 更新状态
             state["current_phase"] = Phase.REPORT_GENERATION
-            state["status"] = TaskStatus.COMPLETED
+            state["status"] = StateTaskStatus.COMPLETED
             state["progress"] = 1.0
-            state["updated_at"] = datetime.utcnow()
+            state["updated_at"] = datetime.now(timezone.utc)
 
             # 调用 Supervisor 生成总结
             summary = await self.supervisor.generate_summary(state)
@@ -403,7 +403,7 @@ class MainGraphBuilder:
         except Exception as e:
             logger.error(f"总结生成失败: {str(e)}")
             state["last_error"] = f"总结生成失败: {str(e)}"
-            state["status"] = TaskStatus.FAILED
+            state["status"] = StateTaskStatus.FAILED
 
         return state
 
@@ -450,7 +450,7 @@ class MainGraphBuilder:
                     state["retry_count"] = retry_count + 1
                 else:
                     logger.warning("已达到最大重试次数，中止任务")
-                    state["status"] = TaskStatus.FAILED
+                    state["status"] = StateTaskStatus.FAILED
                     state["shared_context"]["error_plan"] = error_plan.dict()
 
             elif error_plan.recovery_strategy == RecoveryStrategy.DEGRADE:
@@ -486,12 +486,12 @@ class MainGraphBuilder:
             else:  # ABORT
                 # 中止：标记任务失败
                 logger.warning("中止任务执行")
-                state["status"] = TaskStatus.FAILED
+                state["status"] = StateTaskStatus.FAILED
                 state["shared_context"]["error_plan"] = error_plan.dict()
 
         except Exception as e:
             logger.error(f"错误处理节点执行失败: {str(e)}")
-            state["status"] = TaskStatus.FAILED
+            state["status"] = StateTaskStatus.FAILED
             state["last_error"] = f"错误处理失败: {str(e)}"
 
         return state
@@ -598,7 +598,7 @@ class MainGraphManager:
             logger.error(f"流式执行失败: {str(e)}")
             raise
 
-    async def get_state(self, config: Dict[str, Any]) -> GlobalState:
+    async def get_state(self, config: Dict[str, Any]) -> GlobalState | None:
         """
         获取任务状态
 

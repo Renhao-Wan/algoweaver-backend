@@ -16,14 +16,11 @@ import os
 import time
 import re
 import logging
-from pathlib import Path
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
-from contextlib import asynccontextmanager
 
 import docker
-import psutil
-from docker.errors import ContainerError, APIError, ImageNotFound
+from docker.errors import ContainerError
 
 logger = logging.getLogger(__name__)
 
@@ -335,9 +332,12 @@ class PythonSandbox:
                 error=f"代码执行超时（{timeout}秒）"
             )
         except ContainerError as e:
+            stderr = e.stderr
+            if isinstance(stderr, bytes):
+                stderr = stderr.decode("utf-8", errors="replace")
             return ExecutionResult(
                 status="error",
-                output=e.stderr.decode('utf-8') if e.stderr else "",
+                output=stderr or "",
                 error=f"容器执行错误: {e}",
                 exit_code=e.exit_status
             )

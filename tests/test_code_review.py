@@ -312,7 +312,7 @@ class TestStateConversion:
 
     def test_convert_global_to_review_state(self):
         """测试全局状态到评审状态的转换"""
-        from app.graph.state import GlobalState, TaskStatus, Phase, CollaborationMode
+        from app.graph.state import GlobalState, StateTaskStatus, Phase, CollaborationMode
         from datetime import datetime
 
         global_state = GlobalState(
@@ -321,7 +321,7 @@ class TestStateConversion:
             original_code="def test(): pass",
             language="python",
             optimization_level="balanced",
-            status=TaskStatus.ANALYZING,
+            status=StateTaskStatus.ANALYZING,
             current_phase=Phase.REVIEW,
             progress=0.5,
             collaboration_mode=CollaborationMode.ADVERSARIAL,
@@ -348,7 +348,7 @@ class TestStateConversion:
 
     def test_merge_review_to_global_state(self):
         """测试评审状态到全局状态的合并"""
-        from app.graph.state import GlobalState, TaskStatus, Phase, CollaborationMode
+        from app.graph.state import GlobalState, StateTaskStatus, Phase, CollaborationMode
         from datetime import datetime
 
         global_state = GlobalState(
@@ -357,7 +357,7 @@ class TestStateConversion:
             original_code="def test(): pass",
             language="python",
             optimization_level="balanced",
-            status=TaskStatus.ANALYZING,
+            status=StateTaskStatus.ANALYZING,
             current_phase=Phase.REVIEW,
             progress=0.5,
             collaboration_mode=CollaborationMode.ADVERSARIAL,

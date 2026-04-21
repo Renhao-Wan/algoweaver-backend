@@ -6,7 +6,7 @@ API 请求模型定义
 
 from typing import Optional, List, Dict, Any
 from enum import Enum
-from pydantic import BaseModel, Field, validator, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class OptimizationLevel(str, Enum):

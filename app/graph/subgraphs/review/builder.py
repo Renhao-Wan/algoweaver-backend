@@ -11,15 +11,12 @@
 子图支持状态隔离，使用 ReviewState 作为局部状态。
 """
 
-import uuid
-from typing import Dict, Any, List, Optional
-from langgraph.graph import StateGraph, END, START
+from typing import Dict, Any, Optional
+from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
 from app.graph.state import (
     ReviewState,
-    GlobalState,
-    StateConverter,
     StateFactory
 )
 from app.graph.subgraphs.review.agents import (
@@ -224,7 +221,7 @@ class ReviewSubgraphBuilder:
         logger.debug("根据协商结果进行路由决策")
 
         # 检查是否有错误
-        if state.get('detection_errors') or state.get('suggestion_errors') or state.get('validation_errors'):
+        if state.get('error_info'):
             logger.warning("评审过程中出现错误")
             return "error"
 
@@ -255,13 +252,8 @@ class ReviewSubgraphBuilder:
         logger.error("处理代码评审子图错误")
 
         try:
-            # 收集所有错误信息
-            all_errors = []
-            all_errors.extend(state.get('detection_errors', []))
-            all_errors.extend(state.get('suggestion_errors', []))
-            all_errors.extend(state.get('validation_errors', []))
-
-            error_msg = "; ".join(all_errors) if all_errors else "未知错误"
+            # 获取错误信息
+            error_msg = state.get('error_info', '未知错误')
             logger.error(f"代码评审失败: {error_msg}")
 
             # 标记为错误状态
@@ -277,6 +269,7 @@ class ReviewSubgraphBuilder:
         except Exception as e:
             logger.error(f"错误处理过程中发生异常: {str(e)}")
             state['review_phase'] = ReviewPhase.COMPLETED.value
+            state['error_info'] = f"错误处理失败: {str(e)}"
             return state
 
 

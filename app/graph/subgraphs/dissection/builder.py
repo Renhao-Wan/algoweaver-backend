@@ -9,14 +9,12 @@
 子图支持状态隔离，使用 DissectionState 作为局部状态。
 """
 
-from typing import Dict, Any, List, Optional
-from langgraph.graph import StateGraph, END, START
+from typing import Dict, Any, Optional
+from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
 from app.graph.state import (
     DissectionState,
-    GlobalState,
-    StateConverter,
     StateFactory
 )
 from app.graph.subgraphs.dissection.nodes import (
