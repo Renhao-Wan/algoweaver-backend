@@ -634,10 +634,18 @@ class SupervisorAgent:
 
     def _describe_current_situation(self, state: GlobalState) -> str:
         """描述当前情况"""
+        completed_tasks = []
+        if state.get('algorithm_explanation'):
+            completed_tasks.append("算法拆解")
+        if state.get('detected_issues'):
+            completed_tasks.append("问题检测")
+        if state.get('optimization_suggestions'):
+            completed_tasks.append("优化建议")
+
+        completed_str = "、".join(completed_tasks) if completed_tasks else "无"
+
         return f"""当前任务处于 {state['current_phase'].value} 阶段，进度 {int(state['progress'] * 100)}%。
-已完成: {"算法拆解" if state.get('algorithm_explanation') else ""}
-{"问题检测" if state.get('detected_issues') else ""}
-{"优化建议" if state.get('optimization_suggestions') else ""}"""
+已完成: {completed_str}"""
 
     def _format_execution_results(self, state: GlobalState) -> str:
         """格式化执行结果"""
@@ -710,9 +718,9 @@ class SupervisorAgent:
 async def supervisor_analyze_task_node(state: GlobalState) -> GlobalState:
     """Supervisor 任务分析节点"""
     # 使用全局单例 LLM 实例
-    from app.api.deps import get_llm
+    from app.core.llm import get_llm_instance
 
-    llm = get_llm()
+    llm = get_llm_instance()
     supervisor = SupervisorAgent(llm)
 
     try:
@@ -736,9 +744,9 @@ async def supervisor_analyze_task_node(state: GlobalState) -> GlobalState:
 async def supervisor_routing_node(state: GlobalState) -> GlobalState:
     """Supervisor 路由决策节点"""
     # 使用全局单例 LLM 实例
-    from app.api.deps import get_llm
+    from app.core.llm import get_llm_instance
 
-    llm = get_llm()
+    llm = get_llm_instance()
     supervisor = SupervisorAgent(llm)
 
     try:

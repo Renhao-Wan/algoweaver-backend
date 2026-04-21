@@ -54,21 +54,19 @@ class MainGraphBuilder:
     实现全局任务调度和动态路由。
     """
 
-    def __init__(self, llm=None, checkpointer=None):
+    def __init__(self, checkpointer=None):
         """
         初始化主图构建器
 
         Args:
-            llm: LLM 实例，用于 Supervisor Agent
             checkpointer: 状态持久化器，默认使用 MemorySaver
+
+        Note:
+            LLM 实例由各个节点通过 get_llm_instance() 获取，无需在构建时传入
         """
-        self.llm = llm
         self.checkpointer = checkpointer or MemorySaver()
         self.graph = None
         self.compiled_graph = None
-
-        # 初始化 Supervisor Agent
-        self.supervisor = SupervisorAgent(llm=llm)
 
         # 构建子图
         self.dissection_subgraph = self._build_dissection_subgraph()
@@ -387,14 +385,19 @@ class MainGraphBuilder:
         logger.info("生成任务执行总结")
 
         try:
+            from app.core.llm import get_llm_instance
+            from app.graph.supervisor.agent import SupervisorAgent
+
             # 更新状态
             state["current_phase"] = Phase.REPORT_GENERATION
             state["status"] = StateTaskStatus.COMPLETED
             state["progress"] = 1.0
             state["updated_at"] = datetime.now(timezone.utc)
 
-            # 调用 Supervisor 生成总结
-            summary = await self.supervisor.generate_summary(state)
+            # 创建 Supervisor 实例生成总结
+            llm = get_llm_instance()
+            supervisor = SupervisorAgent(llm)
+            summary = await supervisor.generate_summary(state)
 
             # 保存总结到共享上下文
             state["shared_context"]["final_summary"] = summary
@@ -423,6 +426,9 @@ class MainGraphBuilder:
         logger.info("进入错误处理节点")
 
         try:
+            from app.core.llm import get_llm_instance
+            from app.graph.supervisor.agent import SupervisorAgent
+
             last_error = state.get("last_error", "未知错误")
             retry_count = state.get("retry_count", 0)
 
@@ -434,9 +440,11 @@ class MainGraphBuilder:
                 "task_id": state.get("task_id")
             }
 
-            # 调用 Supervisor 处理错误
+            # 创建 Supervisor 实例处理错误
+            llm = get_llm_instance()
+            supervisor = SupervisorAgent(llm)
             error = Exception(last_error)
-            error_plan = await self.supervisor.handle_error(error, error_context, retry_count)
+            error_plan = await supervisor.handle_error(error, error_context, retry_count)
 
             logger.info(f"错误处理方案: {error_plan.recovery_strategy}")
 
@@ -544,15 +552,17 @@ class MainGraphManager:
     提供主图的高级管理功能，包括任务执行、状态查询和恢复。
     """
 
-    def __init__(self, llm=None, checkpointer=None):
+    def __init__(self, checkpointer=None):
         """
         初始化主图管理器
 
         Args:
-            llm: LLM 实例
             checkpointer: 状态持久化器
+
+        Note:
+            LLM 实例由各个节点通过 get_llm_instance() 获取，无需在构建时传入
         """
-        self.builder = MainGraphBuilder(llm=llm, checkpointer=checkpointer)
+        self.builder = MainGraphBuilder(checkpointer=checkpointer)
         self.graph = self.builder.compile()
 
     async def execute_task(self, initial_state: GlobalState, config: Dict[str, Any] = None) -> GlobalState:

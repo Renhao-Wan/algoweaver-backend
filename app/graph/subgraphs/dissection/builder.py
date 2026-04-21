@@ -138,79 +138,96 @@ class DissectionSubgraphBuilder:
     async def _check_simulation_result(self, state: DissectionState) -> DissectionState:
         """
         检查算法模拟结果
-        
+
         Args:
             state: 当前拆解状态
-            
+
         Returns:
             更新后的拆解状态
         """
         logger.debug("检查算法模拟结果")
-        
+
         try:
             # 检查是否有错误
             if state.get('error_info'):
                 logger.warning(f"算法模拟出现错误: {state['error_info']}")
-                state['needs_retry'] = True
+
+                # 更新重试计数
+                retry_count = state.get('retry_count', 0)
+                if retry_count < 3:  # 最多重试3次
+                    state['retry_count'] = retry_count + 1
+                    state['needs_retry'] = True
+                    logger.info(f"算法模拟失败，准备进行第 {state['retry_count']} 次重试")
+                else:
+                    state['needs_retry'] = False
+                    logger.error("算法模拟重试次数超限")
+
                 return state
-            
+
             # 检查执行步骤是否生成
             if not state.get('execution_steps'):
                 logger.warning("未生成执行步骤")
                 state['error_info'] = "未能生成算法执行步骤"
-                state['needs_retry'] = True
+
+                # 更新重试计数
+                retry_count = state.get('retry_count', 0)
+                if retry_count < 3:  # 最多重试3次
+                    state['retry_count'] = retry_count + 1
+                    state['needs_retry'] = True
+                    logger.info(f"算法模拟失败，准备进行第 {state['retry_count']} 次重试")
+                else:
+                    state['needs_retry'] = False
+                    logger.error("算法模拟重试次数超限")
+
                 return state
-            
+
             # 检查变量追踪是否有效
             if not state.get('variables_trace'):
                 logger.info("变量追踪为空，可能是简单算法")
-            
-            # 标记检查通过
+
+            # 标记检查通过，重置重试计数
             state['simulation_validated'] = True
+            state['retry_count'] = 0
             logger.debug("算法模拟结果检查通过")
-            
+
             return state
-            
+
         except Exception as e:
             logger.error(f"检查模拟结果时发生错误: {str(e)}")
             state['error_info'] = f"检查模拟结果失败: {str(e)}"
+            state['needs_retry'] = False
             return state
     
     def _route_after_simulation(self, state: DissectionState) -> str:
         """
         根据模拟结果决定路由
-        
+
         Args:
             state: 当前拆解状态
-            
+
         Returns:
             下一个节点的名称
         """
         logger.debug("根据模拟结果进行路由决策")
-        
+
         # 如果有错误且需要重试
         if state.get('error_info') and state.get('needs_retry'):
             retry_count = state.get('retry_count', 0)
-            if retry_count < 3:  # 最多重试3次
-                state['retry_count'] = retry_count + 1
-                logger.info(f"算法模拟失败，进行第 {state['retry_count']} 次重试")
-                return "retry"
-            else:
-                logger.error("算法模拟重试次数超限，转入错误处理")
-                return "error"
-        
-        # 如果有错误但不需要重试
+            logger.info(f"路由决策: 重试 (当前重试次数: {retry_count})")
+            return "retry"
+
+        # 如果有错误但不需要重试（超过重试次数）
         if state.get('error_info'):
-            logger.warning("算法模拟出现不可重试的错误")
+            logger.warning("路由决策: 转入错误处理")
             return "error"
-        
+
         # 如果模拟结果验证通过
         if state.get('simulation_validated', False):
-            logger.debug("模拟结果验证通过，继续可视化生成")
+            logger.debug("路由决策: 继续可视化生成")
             return "continue"
-        
+
         # 默认情况下继续执行
-        logger.debug("使用默认路由，继续可视化生成")
+        logger.debug("路由决策: 使用默认路由，继续可视化生成")
         return "continue"
     
     async def _handle_error(self, state: DissectionState) -> DissectionState:

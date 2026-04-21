@@ -13,10 +13,11 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     """应用全局配置类"""
-    
+
     # 应用基础配置
     app_name: str = Field(default="AlgoWeaver AI", description="应用名称")
     app_version: str = Field(default="1.0.0", description="应用版本")
+    app_description: str = Field(default="基于 LangChain 的智能代码推演与优化系统", description="应用描述")
     debug: bool = Field(default=False, description="调试模式")
     environment: str = Field(default="development", description="运行环境")
     
@@ -24,6 +25,10 @@ class Settings(BaseSettings):
     host: str = Field(default="0.0.0.0", description="服务器主机地址")
     port: int = Field(default=8000, description="服务器端口")
     reload: bool = Field(default=True, description="热重载模式")
+    reload_excludes: List[str] = Field(
+        default=["__pycache__", ".pytest_cache", "*.pyc"],
+        description="热重载排除的文件或目录"
+    )
     
     # LLM API 配置
     llm_api_key: str = Field(..., description="LLM API 密钥")

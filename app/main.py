@@ -82,10 +82,11 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     async def health_check():
-        """健康检查端点"""
+        """应用级健康检查端点"""
         return {
             "status": "healthy",
             "service": settings.app_name,
+            "description": settings.app_description,
             "version": settings.app_version,
             "environment": settings.environment
         }
@@ -101,5 +102,6 @@ if __name__ == "__main__":
         host=settings.host,
         port=settings.port,
         reload=settings.reload,
+        reload_excludes=settings.reload_excludes,
         log_level=settings.log_level.lower()
     )

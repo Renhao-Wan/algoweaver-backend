@@ -8,7 +8,7 @@
 这些节点协作完成算法的逐步分析和可视化讲解生成。
 """
 
-from app.api.deps import get_llm
+from app.core.llm import get_llm_instance
 from app.graph.state import DissectionState
 from app.graph.tools.python_repl import PythonSandbox
 from app.graph.subgraphs.dissection.agents import (
@@ -35,7 +35,7 @@ async def step_simulator_node(state: DissectionState) -> DissectionState:
         更新后的拆解状态，包含模拟结果
     """
     # 使用全局单例 LLM 实例
-    llm = get_llm()
+    llm = get_llm_instance()
 
     sandbox = PythonSandbox()
     agent = StepSimulatorAgent(llm, sandbox)
@@ -56,7 +56,7 @@ async def visual_generator_node(state: DissectionState) -> DissectionState:
         更新后的拆解状态，包含可视化讲解
     """
     # 使用全局单例 LLM 实例
-    llm = get_llm()
+    llm = get_llm_instance()
 
     agent = VisualGeneratorAgent(llm)
 

@@ -397,30 +397,3 @@ async def get_report_content(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"获取报告内容失败: {str(e)}"
         )
-
-
-# ============================================================================
-# 健康检查
-# ============================================================================
-
-@router.get(
-    "/health",
-    summary="健康检查",
-    description="检查服务健康状态"
-)
-async def health_check() -> JSONResponse:
-    """
-    健康检查
-
-    Returns:
-        JSONResponse: 健康状态
-    """
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={
-            "status": "healthy",
-            "service": "AlgoWeaver AI",
-            "version": "1.0.0"
-        }
-    )
-

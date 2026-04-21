@@ -9,7 +9,7 @@
 这些节点协作完成代码质量检测和优化建议生成，支持协商/对抗模式的多轮评审。
 """
 
-from app.api.deps import get_llm
+from app.core.llm import get_llm_instance
 from app.graph.state import ReviewState
 from app.graph.tools.python_repl import PythonSandbox
 from app.graph.subgraphs.review.agents import (
@@ -37,7 +37,7 @@ async def mistake_detector_node(state: ReviewState) -> ReviewState:
         更新后的评审状态，包含检测到的问题
     """
     # 使用全局单例 LLM 实例
-    llm = get_llm()
+    llm = get_llm_instance()
 
     sandbox = PythonSandbox()
     agent = MistakeDetectorAgent(llm, sandbox)
@@ -58,7 +58,7 @@ async def suggestion_generator_node(state: ReviewState) -> ReviewState:
         更新后的评审状态，包含优化建议
     """
     # 使用全局单例 LLM 实例
-    llm = get_llm()
+    llm = get_llm_instance()
 
     agent = SuggestionGeneratorAgent(llm)
 
@@ -78,7 +78,7 @@ async def validation_tester_node(state: ReviewState) -> ReviewState:
         更新后的评审状态，包含验证结果
     """
     # 使用全局单例 LLM 实例
-    llm = get_llm()
+    llm = get_llm_instance()
 
     sandbox = PythonSandbox()
     agent = ValidationTesterAgent(llm, sandbox)

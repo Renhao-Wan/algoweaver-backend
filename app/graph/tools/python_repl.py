@@ -20,7 +20,7 @@ from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 
 import docker
-from docker.errors import ContainerError
+from docker.errors import APIError
 
 logger = logging.getLogger(__name__)
 
@@ -331,15 +331,22 @@ class PythonSandbox:
                 output="",
                 error=f"代码执行超时（{timeout}秒）"
             )
-        except ContainerError as e:
-            stderr = e.stderr
-            if isinstance(stderr, bytes):
-                stderr = stderr.decode("utf-8", errors="replace")
+        except APIError as e:
+            # APIError 在 docker 7.x 中替代了 ContainerError
+            stderr = ""
+            exit_code = None
+            # 尝试从异常中提取错误信息
+            if hasattr(e, 'stderr') and e.stderr:
+                stderr = e.stderr
+                if isinstance(stderr, bytes):
+                    stderr = stderr.decode("utf-8", errors="replace")
+            if hasattr(e, 'exit_status'):
+                exit_code = e.exit_status
             return ExecutionResult(
                 status="error",
                 output=stderr or "",
                 error=f"容器执行错误: {e}",
-                exit_code=e.exit_status
+                exit_code=exit_code
             )
         except Exception as e:
             return ExecutionResult(

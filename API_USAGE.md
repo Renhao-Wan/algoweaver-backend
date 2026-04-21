@@ -125,14 +125,16 @@ AlgoWeaver AI 提供了 RESTful API 和 WebSocket 接口，用于代码分析、
 
 ### 6. 健康检查
 
-**端点**: `GET /api/health`
+**端点**: `GET /health`
 
 **响应**:
 ```json
 {
   "status": "healthy",
   "service": "AlgoWeaver AI",
-  "version": "1.0.0"
+  "description": "智能代码推演系统后端服务",
+  "version": "1.0.0",
+  "environment": "development"
 }
 ```
 

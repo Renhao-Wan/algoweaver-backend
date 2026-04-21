@@ -188,6 +188,15 @@ class WeaverService:
             # 映射状态值
             response_status = ResponseTaskStatus(state_status.value) if hasattr(state_status, 'value') else ResponseTaskStatus.PENDING
 
+            # 构建 result 字典
+            final_summary = state["shared_context"].get("final_summary")
+            result_dict = None
+            if final_summary:
+                result_dict = {
+                    "summary": final_summary,
+                    "completed": True
+                }
+
             return TaskStatusResponse(
                 success=True,
                 message="查询成功",
@@ -197,7 +206,7 @@ class WeaverService:
                 current_phase=state["current_phase"].value,  # 必需字段
                 created_at=state["created_at"],  # 必需字段
                 updated_at=state["updated_at"],  # 必需字段
-                result=state["shared_context"].get("final_summary"),  # shared_context 是必需的，但其内容是可选的
+                result=result_dict,
                 logs=None  # execution_logs 字段不存在于 GlobalState
             )
 
@@ -388,7 +397,7 @@ class WeaverService:
             ]
 
             return AlgorithmExplanation(
-                algorithm_name=state["shared_context"].get("dissection_result", {}).get("algorithm_type", "未知算法"),
+                algorithm_name=state["shared_context"].get("dissection_result", {}).get("algorithm_type") or "未知算法",
                 steps=steps,
                 pseudocode=algorithm_explanation.pseudocode,
                 time_complexity=algorithm_explanation.time_complexity,
@@ -454,6 +463,42 @@ class WeaverService:
 
         return issues
 
+    def _map_improvement_type(self, type_str: str) -> ImprovementType:
+        """
+        映射改进类型字符串到枚举
+
+        Args:
+            type_str: 类型字符串
+
+        Returns:
+            ImprovementType: 改进类型枚举
+        """
+        # 映射表
+        type_mapping = {
+            "readability": ImprovementType.READABILITY_IMPROVEMENT,
+            "readability_improvement": ImprovementType.READABILITY_IMPROVEMENT,
+            "performance": ImprovementType.PERFORMANCE_TUNING,
+            "performance_tuning": ImprovementType.PERFORMANCE_TUNING,
+            "algorithm": ImprovementType.ALGORITHM_OPTIMIZATION,
+            "algorithm_optimization": ImprovementType.ALGORITHM_OPTIMIZATION,
+            "refactoring": ImprovementType.CODE_REFACTORING,
+            "code_refactoring": ImprovementType.CODE_REFACTORING,
+            "security": ImprovementType.SECURITY_ENHANCEMENT,
+            "security_enhancement": ImprovementType.SECURITY_ENHANCEMENT,
+        }
+
+        # 尝试直接匹配
+        if type_str in type_mapping:
+            return type_mapping[type_str]
+
+        # 尝试作为枚举值
+        try:
+            return ImprovementType(type_str)
+        except ValueError:
+            # 默认返回代码重构
+            logger.warning(f"未知的改进类型: {type_str}，使用默认值 CODE_REFACTORING")
+            return ImprovementType.CODE_REFACTORING
+
     def _build_suggestions(self, state: GlobalState) -> list[Suggestion]:
         """
         构建建议列表
@@ -475,12 +520,13 @@ class WeaverService:
                 suggestion = Suggestion(
                     suggestion_id=sugg_data.suggestion_id,
                     issue_id=sugg_data.issue_id,
-                    improvement_type=ImprovementType(sugg_data.improvement_type),
+                    improvement_type=self._map_improvement_type(sugg_data.improvement_type),
                     title=sugg_data.improvement_type,  # 使用 improvement_type 作为 title
                     description=sugg_data.explanation,
                     original_code=sugg_data.original_code,
                     improved_code=sugg_data.improved_code,
                     explanation=sugg_data.explanation,
+                    impact_score=sugg_data.impact_score,  # 添加 impact_score 字段
                     impact_assessment=ImpactAssessment(
                         performance_impact="待评估",
                         readability_impact="待评估",
@@ -503,12 +549,13 @@ class WeaverService:
                 suggestion = Suggestion(
                     suggestion_id=sugg_data.get("suggestion_id", str(uuid.uuid4())),
                     issue_id=sugg_data.get("issue_id", ""),
-                    improvement_type=ImprovementType(sugg_data.get("improvement_type", "code_refactoring")),
+                    improvement_type=self._map_improvement_type(sugg_data.get("improvement_type", "code_refactoring")),
                     title=sugg_data.get("title", ""),
                     description=sugg_data.get("description", ""),
                     original_code=sugg_data.get("original_code", ""),
                     improved_code=sugg_data.get("improved_code", ""),
                     explanation=sugg_data.get("explanation", ""),
+                    impact_score=sugg_data.get("impact_score", 5.0),  # 添加 impact_score 字段
                     impact_assessment=impact,
                     confidence_score=sugg_data.get("confidence_score", 0.5)
                 )
