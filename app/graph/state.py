@@ -15,7 +15,7 @@ LangGraph 状态定义模块（重构版）
 - ReviewState: 代码评审子图局部状态（代码质量级别）
 """
 
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Union, TypeGuard
 from typing_extensions import TypedDict, NotRequired
 from pydantic import BaseModel, Field
 from datetime import datetime, timezone
@@ -94,7 +94,6 @@ class CodeIssue(BaseModel):
     suggestion: str = Field(..., min_length=1, description="修复建议")
     example_fix: Optional[str] = Field(None, description="修复示例代码")
 
-
 class Suggestion(BaseModel):
     """优化建议"""
     suggestion_id: str = Field(..., description="建议唯一标识")
@@ -113,7 +112,7 @@ class HumanDecision(BaseModel):
     accepted_suggestions: List[str] = Field(default_factory=list, description="接受的建议ID列表")
     rejected_suggestions: List[str] = Field(default_factory=list, description="拒绝的建议ID列表")
     custom_input: Optional[str] = Field(None, description="用户自定义输入")
-    timestamp: datetime = Field(default_factory=datetime.utcnow, description="决策时间")
+    timestamp: datetime = Field(default_factory=lambda : datetime.now(timezone.utc), description="决策时间")
 
 
 class AlgorithmExplanation(BaseModel):
@@ -123,6 +122,8 @@ class AlgorithmExplanation(BaseModel):
     time_complexity: str = Field(..., description="时间复杂度")
     space_complexity: str = Field(..., description="空间复杂度")
     visualization: Optional[str] = Field(None, description="可视化描述（Mermaid/ASCII）")
+    step_explanations: List[str] = Field(default_factory=list, description="步骤解释列表")
+    teaching_notes: List[str] = Field(default_factory=list, description="教学要点")
     key_insights: List[str] = Field(default_factory=list, description="关键洞察")
 
 
@@ -178,7 +179,7 @@ class GlobalState(TypedDict):
     updated_at: datetime
 
     # === 错误处理（可选） ===
-    last_error: NotRequired[str] | None
+    last_error: NotRequired[str | None]
     retry_count: int
 
 
@@ -223,6 +224,7 @@ class DissectionState(TypedDict):
     # === 变量追踪（子图内部） ===
     variables_trace: NotRequired[Dict[str, List[Any]]]
     execution_flow: NotRequired[List[str]]
+    performance_metrics: NotRequired[Dict[str, Any]]  # 性能指标（执行时间、内存等）
 
     # === 输入数据（可选） ===
     input_data: NotRequired[Dict[str, Any]]
@@ -320,7 +322,8 @@ class StateFactory:
             shared_context={},
             created_at=now,
             updated_at=now,
-            retry_count=0
+            retry_count=0,
+            last_error=None,
         )
 
     @staticmethod
@@ -412,11 +415,15 @@ class StateConverter:
             'data_structures_used': dissection_state.get('data_structures_used', [])
         }
 
+        # 传递性能指标到 shared_context（如果存在）
+        if 'performance_metrics' in dissection_state:
+            global_state['shared_context']['performance_metrics'] = dissection_state['performance_metrics']
+
         # 更新错误信息
         if dissection_state.get('error_info'):
             global_state['last_error'] = f"算法拆解错误: {dissection_state['error_info']}"
 
-        global_state['updated_at'] = datetime.utcnow()
+        global_state['updated_at'] = datetime.now(timezone.utc)
         return global_state
 
     @staticmethod
@@ -466,7 +473,7 @@ class StateConverter:
         if review_state.get('error_info'):
             global_state['last_error'] = f"代码评审错误: {review_state['error_info']}"
 
-        global_state['updated_at'] = datetime.utcnow()
+        global_state['updated_at'] = datetime.now(timezone.utc)
         return global_state
 
 
@@ -481,20 +488,20 @@ class StateUtils:
     def update_progress(state: GlobalState, progress: float) -> None:
         """更新全局状态的进度"""
         state['progress'] = max(0.0, min(1.0, progress))
-        state['updated_at'] = datetime.utcnow()
+        state['updated_at'] = datetime.now(timezone.utc)
 
     @staticmethod
     def add_code_version(state: GlobalState, new_code: str) -> None:
         """添加新的代码版本"""
         if new_code not in state['code_versions']:
             state['code_versions'].append(new_code)
-        state['updated_at'] = datetime.utcnow()
+        state['updated_at'] = datetime.now(timezone.utc)
 
     @staticmethod
     def add_human_decision(state: GlobalState, decision: HumanDecision) -> None:
         """添加人工决策记录"""
         state['decision_history'].append(decision)
-        state['updated_at'] = datetime.utcnow()
+        state['updated_at'] = datetime.now(timezone.utc)
 
     @staticmethod
     def set_human_intervention(
@@ -508,26 +515,35 @@ class StateUtils:
             state['pending_human_decision'] = decision_data
         elif not required and 'pending_human_decision' in state:
             del state['pending_human_decision']
-        state['updated_at'] = datetime.utcnow()
+        state['updated_at'] = datetime.now(timezone.utc)
+
+    @staticmethod
+    def _is_global_state(
+            state: Union[GlobalState, DissectionState, ReviewState]
+    ) -> TypeGuard[GlobalState]:
+        """判断是否为全局状态（通过字段存在性检查）"""
+        return "status" in state and "current_phase" in state and "shared_context" in state
 
     @staticmethod
     def set_error(state: Union[GlobalState, DissectionState, ReviewState], error_message: str) -> None:
         """设置错误信息"""
         state['error_info'] = error_message
-        if isinstance(state, GlobalState):
+        if StateUtils._is_global_state(state):
             state['last_error'] = error_message
             state['status'] = StateTaskStatus.FAILED
-        state['updated_at'] = datetime.utcnow() if 'updated_at' in state else None
+            state['updated_at'] = datetime.now(timezone.utc)
+        elif 'updated_at' in state:
+            state['updated_at'] = datetime.now(timezone.utc)
 
     @staticmethod
     def clear_error(state: Union[GlobalState, DissectionState, ReviewState]) -> None:
         """清除错误信息"""
         if 'error_info' in state:
             del state['error_info']
-        if isinstance(state, GlobalState) and 'last_error' in state:
+        if StateUtils._is_global_state(state) and 'last_error' in state:
             del state['last_error']
         if 'updated_at' in state:
-            state['updated_at'] = datetime.utcnow()
+            state['updated_at'] = datetime.now(timezone.utc)
 
 
 # ============================================================================

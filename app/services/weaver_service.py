@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 import uuid
 
 from app.graph.main_graph import MainGraphManager
-from app.graph.state import GlobalState, Phase
+from app.graph.state import GlobalState, Phase, IssueType
 from app.graph.state import StateTaskStatus
 from app.schemas.requests import TaskRequest, OptimizationLevel, ReportGenerationRequest
 from app.schemas.responses import (
@@ -25,7 +25,6 @@ from app.schemas.responses import (
     PerformanceMetrics,
     ImpactAssessment,
     ReportResponse,
-    IssueType,
     Severity,
     ImprovementType,
     ResponseTaskStatus
@@ -185,7 +184,7 @@ class WeaverService:
 
             # 构建响应
             # 将状态从 StateTaskStatus 转换为 ResponseTaskStatus
-            state_status = state.get("status", StateTaskStatus.PENDING)
+            state_status = state["status"]  # 必需字段，直接访问
             # 映射状态值
             response_status = ResponseTaskStatus(state_status.value) if hasattr(state_status, 'value') else ResponseTaskStatus.PENDING
 
@@ -194,11 +193,11 @@ class WeaverService:
                 message="查询成功",
                 task_id=task_id,
                 status=response_status,
-                progress_percent=int(state.get("progress", 0) * 100),
-                current_phase=state.get("current_phase", Phase.ANALYSIS).value,
-                created_at=state.get("created_at", datetime.now(timezone.utc)),
-                updated_at=state.get("updated_at", datetime.now(timezone.utc)),
-                result=state.get("shared_context", {}).get("final_summary"),
+                progress_percent=int(state["progress"] * 100),  # 必需字段
+                current_phase=state["current_phase"].value,  # 必需字段
+                created_at=state["created_at"],  # 必需字段
+                updated_at=state["updated_at"],  # 必需字段
+                result=state["shared_context"].get("final_summary"),  # shared_context 是必需的，但其内容是可选的
                 logs=None  # execution_logs 字段不存在于 GlobalState
             )
 
@@ -229,9 +228,9 @@ class WeaverService:
                 raise ValueError(f"任务不存在: {task_id}")
 
             # 提取结果数据
-            original_code = state.get("original_code", "")
+            original_code = state["original_code"]  # 必需字段
             # 使用最新的代码版本作为优化后代码
-            code_versions = state.get("code_versions", [])
+            code_versions = state["code_versions"]  # 必需字段
             optimized_code = code_versions[-1] if len(code_versions) > 1 else None
 
             # 构建算法讲解
@@ -260,7 +259,7 @@ class WeaverService:
                 suggestions=suggestions,
                 validation_result=validation_result,
                 performance_metrics=performance_metrics,
-                optimization_history=state.get("shared_context", {}).get("optimization_history", [])
+                optimization_history=state["shared_context"].get("optimization_history", [])  # shared_context 必需，内容可选
             )
 
         except Exception as e:
@@ -333,9 +332,9 @@ class WeaverService:
             "type": "status_update",
             "data": {
                 "node": node_name,
-                "status": state.get("status"),
-                "phase": state.get("current_phase"),
-                "progress": state.get("progress", 0),
+                "status": state.get("status"),  # 可能不存在于事件状态中
+                "phase": state.get("current_phase"),  # 可能不存在于事件状态中
+                "progress": state.get("progress", 0),  # 可能不存在于事件状态中
                 "message": self._get_phase_message(state.get("current_phase"))
             }
         }
@@ -371,8 +370,8 @@ class WeaverService:
         Returns:
             AlgorithmExplanation: 算法讲解
         """
-        # 从 algorithm_explanation 或 shared_context 获取算法分析结果
-        algorithm_explanation = state.get("algorithm_explanation")
+        # 从 algorithm_explanation（可选字段）或 shared_context 获取算法分析结果
+        algorithm_explanation = state.get("algorithm_explanation")  # NotRequired 字段，使用 get
 
         if algorithm_explanation:
             # 如果有 algorithm_explanation，直接使用
@@ -389,7 +388,7 @@ class WeaverService:
             ]
 
             return AlgorithmExplanation(
-                algorithm_name=state.get("shared_context", {}).get("dissection_result", {}).get("algorithm_type", "未知算法"),
+                algorithm_name=state["shared_context"].get("dissection_result", {}).get("algorithm_type", "未知算法"),
                 steps=steps,
                 pseudocode=algorithm_explanation.pseudocode,
                 time_complexity=algorithm_explanation.time_complexity,
@@ -419,8 +418,8 @@ class WeaverService:
         Returns:
             list[CodeIssue]: 问题列表
         """
-        # 直接从 detected_issues 获取问题列表
-        detected_issues = state.get("detected_issues", [])
+        # 直接从 detected_issues（可选字段）获取问题列表
+        detected_issues = state.get("detected_issues", [])  # NotRequired 字段，使用 get
 
         issues = []
         for issue_data in detected_issues:
@@ -465,8 +464,8 @@ class WeaverService:
         Returns:
             list[Suggestion]: 建议列表
         """
-        # 直接从 optimization_suggestions 获取建议列表
-        optimization_suggestions = state.get("optimization_suggestions", [])
+        # 直接从 optimization_suggestions（可选字段）获取建议列表
+        optimization_suggestions = state.get("optimization_suggestions", [])  # NotRequired 字段，使用 get
 
         suggestions = []
         for sugg_data in optimization_suggestions:
@@ -527,8 +526,8 @@ class WeaverService:
         Returns:
             Optional[ValidationResult]: 验证结果
         """
-        # 从 shared_context 获取验证结果
-        validation_data = state.get("shared_context", {}).get("review_result", {}).get("validation_results")
+        # 从 shared_context（必需字段）获取验证结果
+        validation_data = state["shared_context"].get("review_result", {}).get("validation_results")
 
         if not validation_data:
             return None
@@ -566,8 +565,8 @@ class WeaverService:
         Returns:
             Optional[PerformanceMetrics]: 性能指标
         """
-        # 从 shared_context 获取性能指标
-        perf_data = state.get("shared_context", {}).get("performance_metrics")
+        # 从 shared_context（必需字段）获取性能指标
+        perf_data = state["shared_context"].get("performance_metrics")
 
         if not perf_data:
             return None

@@ -137,7 +137,7 @@ class MistakeDetectorAgent:
 
         except Exception as e:
             logger.error(f"问题检测失败: {str(e)}")
-            state['detection_errors'].append(f"问题检测失败: {str(e)}")
+            state['error_info'] = f"问题检测失败: {str(e)}"
             return state
 
     async def _static_code_analysis(self, code: str, language: str) -> List[CodeIssue]:
@@ -379,7 +379,7 @@ class SuggestionGeneratorAgent:
 
         except Exception as e:
             logger.error(f"生成优化建议失败: {str(e)}")
-            state['suggestion_errors'].append(f"生成优化建议失败: {str(e)}")
+            state['error_info'] = f"生成优化建议失败: {str(e)}"
             return state
 
     def _prioritize_issues(self, issues: List[CodeIssue]) -> List[CodeIssue]:
@@ -565,7 +565,7 @@ class ValidationTesterAgent:
             )
 
             # 5. 综合评估
-            validation_result = self._综合评估(
+            validation_result = self._comprehensive_assessment(
                 functionality_result,
                 fix_verification,
                 quality_metrics,
@@ -666,7 +666,7 @@ class ValidationTesterAgent:
         code: str,
         language: str,
         optimization_level: str
-    ) -> dict[str, float] | dict[str, float | str] | Any:
+    ) -> dict[str, float]:
         """评估代码质量"""
         try:
             # 使用 LLM 评估代码质量
@@ -738,7 +738,7 @@ class ValidationTesterAgent:
                 "error": str(e)
             }
 
-    def _综合评估(
+    def _comprehensive_assessment(
         self,
         functionality_result: Dict[str, Any],
         fix_verification: Dict[str, Any],

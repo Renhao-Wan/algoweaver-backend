@@ -4,12 +4,11 @@
 使用 Pydantic Settings 进行环境变量读取和配置验证
 支持开发、测试、生产环境的配置管理
 """
-
+import sys
 from typing import Optional, List
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 from functools import lru_cache
-import os
 
 
 class Settings(BaseSettings):
@@ -214,6 +213,6 @@ def get_environment_info() -> dict:
         "app_version": settings.app_version,
         "environment": settings.environment,
         "debug": settings.debug,
-        "python_version": os.sys.version,
+        "python_version": sys.version,
         "langsmith_tracing": settings.langsmith_tracing,
     }

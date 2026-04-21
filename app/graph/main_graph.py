@@ -21,6 +21,7 @@
 
 from typing import Dict, Any
 from datetime import datetime, timezone
+from dataclasses import asdict
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import interrupt
@@ -451,14 +452,14 @@ class MainGraphBuilder:
                 else:
                     logger.warning("已达到最大重试次数，中止任务")
                     state["status"] = StateTaskStatus.FAILED
-                    state["shared_context"]["error_plan"] = error_plan.dict()
+                    state["shared_context"]["error_plan"] = asdict(error_plan)
 
             elif error_plan.recovery_strategy == RecoveryStrategy.DEGRADE:
                 # 降级：标记降级模式，继续执行
                 logger.info("启用降级模式")
                 state["last_error"] = None
                 state["shared_context"]["degraded_mode"] = True
-                state["shared_context"]["error_plan"] = error_plan.dict()
+                state["shared_context"]["error_plan"] = asdict(error_plan)
 
             elif error_plan.recovery_strategy == RecoveryStrategy.SKIP:
                 # 跳过：清除错误，跳过当前步骤
@@ -487,7 +488,7 @@ class MainGraphBuilder:
                 # 中止：标记任务失败
                 logger.warning("中止任务执行")
                 state["status"] = StateTaskStatus.FAILED
-                state["shared_context"]["error_plan"] = error_plan.dict()
+                state["shared_context"]["error_plan"] = asdict(error_plan)
 
         except Exception as e:
             logger.error(f"错误处理节点执行失败: {str(e)}")

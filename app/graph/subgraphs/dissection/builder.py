@@ -229,13 +229,10 @@ class DissectionSubgraphBuilder:
             # 记录错误信息
             error_msg = state.get('error_info') or "未知错误"
             logger.error(f"算法拆解失败: {error_msg}")
-            
+
             # 生成错误报告
             state['algorithm_explanation'] = self._create_error_explanation(error_msg)
-            
-            # 标记为错误状态
-            state['has_error'] = True
-            
+
             return state
             
         except Exception as e:

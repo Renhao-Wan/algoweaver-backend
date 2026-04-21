@@ -323,7 +323,7 @@ print("=== TRACE_DATA_END ===")
         # 简化的解析实现，实际项目中可以使用结构化输出
         steps = []
 
-        # 这里应该实现更复杂的解析逻辑
+        # TODO 这里应该实现更复杂的解析逻辑
         # 暂时返回示例步骤
         steps.append(ExecutionStep(
             step_number=1,

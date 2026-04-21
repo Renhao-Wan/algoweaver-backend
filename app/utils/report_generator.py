@@ -4,11 +4,11 @@
 提供 Markdown 格式的教学报告生成功能，支持多格式导出。
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Union
 from datetime import datetime, timezone
 from enum import Enum
 
-from app.graph.state import GlobalState
+from app.graph.state import GlobalState, CodeIssue, Suggestion
 from app.core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -141,16 +141,16 @@ class ReportGenerator:
         sections = []
 
         # 标题
-        sections.append(f"# {state.get('task_id', 'Unknown')} - 分析摘要\n")
+        sections.append(f"# {state['task_id']} - 分析摘要\n")  # 必需字段
 
         # 快速概览
         sections.append("## 快速概览\n")
-        sections.append(f"- **语言**: {state.get('language', 'Unknown')}")
-        sections.append(f"- **优化级别**: {state.get('optimization_level', 'Unknown')}")
-        sections.append(f"- **状态**: {state.get('status', 'Unknown').value}")
+        sections.append(f"- **语言**: {state['language']}")  # 必需字段
+        sections.append(f"- **优化级别**: {state['optimization_level']}")  # 必需字段
+        sections.append(f"- **状态**: {state['status'].value}")  # 必需字段
 
         # 关键发现 - 从 algorithm_explanation 或 shared_context 获取
-        algorithm_explanation = state.get("algorithm_explanation")
+        algorithm_explanation = state.get("algorithm_explanation")  # 可选字段
         sections.append("\n## 关键发现\n")
         if algorithm_explanation:
             sections.append(f"- **时间复杂度**: {algorithm_explanation.time_complexity}")
@@ -159,14 +159,14 @@ class ReportGenerator:
             sections.append("- 暂无算法分析结果")
 
         # 主要问题 - 直接从 detected_issues 获取
-        issues = state.get("detected_issues", [])
+        issues = state.get("detected_issues", [])  # 可选字段
         sections.append(f"\n## 主要问题 ({len(issues)})\n")
         for i, issue in enumerate(issues[:3], 1):  # 只显示前3个
             sections.append(f"{i}. **{issue.type.value}** (严重程度: {issue.severity.value})")
             sections.append(f"   {issue.description}")
 
         # 优化建议 - 直接从 optimization_suggestions 获取
-        suggestions = state.get("optimization_suggestions", [])
+        suggestions = state.get("optimization_suggestions", [])  # 可选字段
         sections.append(f"\n## 优化建议 ({len(suggestions)})\n")
         for i, sugg in enumerate(suggestions[:3], 1):  # 只显示前3个
             sections.append(f"{i}. {sugg.improvement_type} (影响评分: {sugg.impact_score:.1f}/10)")
@@ -179,9 +179,9 @@ class ReportGenerator:
 
     def _generate_header(self, state: GlobalState) -> str:
         """生成报告头部"""
-        task_id = state.get("task_id", "Unknown")
-        created_at = state.get("created_at", datetime.now(timezone.utc))
-        language = state.get("language", "Unknown")
+        task_id = state["task_id"]  # 必需字段
+        created_at = state["created_at"]  # 必需字段
+        language = state["language"]  # 必需字段
 
         return f"""# AlgoWeaver AI 教学报告
 
@@ -194,27 +194,28 @@ class ReportGenerator:
 
     def _generate_overview(self, state: GlobalState) -> str:
         """生成任务概览"""
-        status = state.get("status")
-        optimization_level = state.get("optimization_level", "Unknown")
-        progress = state.get("progress", 0)
+        status = state["status"]  # 必需字段
+        optimization_level = state["optimization_level"]  # 必需字段
+        progress = state["progress"]  # 必需字段
+        current_phase = state["current_phase"]  # 必需字段
 
         return f"""## 任务概览
 
-- **状态**: {status.value if status else 'Unknown'}
+- **状态**: {status.value}
 - **优化级别**: {optimization_level}
 - **完成进度**: {int(progress * 100)}%
-- **执行阶段**: {state.get('current_phase', 'Unknown').value if state.get('current_phase') else 'Unknown'}"""
+- **执行阶段**: {current_phase.value}"""
 
     def _generate_algorithm_analysis(self, state: GlobalState) -> str:
         """生成算法分析章节"""
-        # 从 algorithm_explanation 获取算法分析结果
+        # 从 algorithm_explanation（可选字段）获取算法分析结果
         algorithm_explanation = state.get("algorithm_explanation")
 
         if not algorithm_explanation:
             return "## 算法分析\n\n暂无算法分析结果。"
 
-        # 从 shared_context 获取算法类型（如果有）
-        algorithm_type = state.get("shared_context", {}).get("dissection_result", {}).get("algorithm_type", "未知算法")
+        # 从 shared_context（必需字段）获取算法类型（如果有）
+        algorithm_type = state["shared_context"].get("dissection_result", {}).get("algorithm_type", "未知算法")
         time_complexity = algorithm_explanation.time_complexity
         space_complexity = algorithm_explanation.space_complexity
         pseudocode = algorithm_explanation.pseudocode
@@ -320,8 +321,16 @@ class ReportGenerator:
 
         return "\n".join(lines)
 
-    def _format_issue(self, issue: Dict[str, Any]) -> List[str]:
-        """格式化单个问题"""
+    def _format_issue(self, issue: Union[CodeIssue, Dict[str, Any]]) -> List[str]:
+        """
+        格式化单个问题
+
+        Args:
+            issue: CodeIssue 对象或字典格式的问题数据
+
+        Returns:
+            List[str]: 格式化后的行列表
+        """
         # 处理 Pydantic 模型或字典
         if hasattr(issue, 'type'):
             # Pydantic 模型
@@ -347,7 +356,7 @@ class ReportGenerator:
             ""
         ]
 
-        if example_fix:
+        if example_fix:  # 只有非 None 时才添加
             lines.append("**修复示例**:")
             lines.append("")
             lines.append("```python")
@@ -371,21 +380,12 @@ class ReportGenerator:
         ]
 
         for i, sugg in enumerate(suggestions, 1):
-            # 处理 Pydantic 模型或字典
-            if hasattr(sugg, 'improvement_type'):
-                # Pydantic 模型
-                improvement_type = sugg.improvement_type
-                original_code = sugg.original_code
-                improved_code = sugg.improved_code
-                explanation = sugg.explanation
-                impact_score = sugg.impact_score
-            else:
-                # 字典
-                improvement_type = sugg.get('improvement_type', 'Unknown')
-                original_code = sugg.get('original_code', '')
-                improved_code = sugg.get('improved_code', '')
-                explanation = sugg.get('explanation', '')
-                impact_score = sugg.get('impact_score', 0)
+            # Pydantic 模型
+            improvement_type = sugg.improvement_type
+            original_code = sugg.original_code
+            improved_code = sugg.improved_code
+            explanation = sugg.explanation
+            impact_score = sugg.impact_score
 
             lines.extend([
                 f"### 建议 {i}: {improvement_type}",
@@ -409,7 +409,7 @@ class ReportGenerator:
             ])
 
             # 影响评估（如果有）
-            if hasattr(sugg, 'impact_assessment') and sugg.impact_assessment:
+            if isinstance(sugg, Suggestion) and hasattr(sugg, 'impact_assessment') and sugg.impact_assessment:
                 impact = sugg.impact_assessment
                 lines.extend([
                     "**影响评估**:",
@@ -436,9 +436,9 @@ class ReportGenerator:
 
     def _generate_comparison_section(self, state: GlobalState) -> str:
         """生成优化对比章节"""
-        original_code = state.get("original_code", "")
+        original_code = state["original_code"]  # 必需字段
         # 使用最新的代码版本作为优化后代码
-        code_versions = state.get("code_versions", [])
+        code_versions = state["code_versions"]  # 必需字段
         optimized_code = code_versions[-1] if len(code_versions) > 1 else None
 
         if not optimized_code or optimized_code == original_code:
@@ -462,7 +462,7 @@ class ReportGenerator:
         ]
 
         # 性能对比（从 shared_context 获取）
-        perf_metrics = state.get("shared_context", {}).get("performance_metrics")
+        perf_metrics = state["shared_context"].get("performance_metrics")  # shared_context 必需，内容可选
         if perf_metrics:
             lines.extend([
                 "### 性能对比",
@@ -477,8 +477,8 @@ class ReportGenerator:
 
     def _generate_history_section(self, state: GlobalState) -> str:
         """生成优化历史章节"""
-        # 从 shared_context 获取优化历史
-        history = state.get("shared_context", {}).get("optimization_history", [])
+        # 从 shared_context（必需字段）获取优化历史
+        history = state["shared_context"].get("optimization_history", [])
 
         if not history:
             return "## 优化历史\n\n暂无优化历史记录。"
@@ -502,7 +502,7 @@ class ReportGenerator:
 
     def _generate_conclusion(self, state: GlobalState) -> str:
         """生成总结章节"""
-        final_summary = state.get("shared_context", {}).get("final_summary", {})
+        final_summary = state["shared_context"].get("final_summary", {})  # shared_context 必需，内容可选
 
         lines = [
             "## 总结",
@@ -547,10 +547,10 @@ class ReportGenerator:
         """生成任务详情"""
         return f"""## 任务详情
 
-- **任务ID**: {state.get('task_id', 'Unknown')}
-- **用户ID**: {state.get('user_id', 'Unknown')}
-- **语言**: {state.get('language', 'Unknown')}
-- **优化级别**: {state.get('optimization_level', 'Unknown')}"""
+- **任务ID**: {state['task_id']}
+- **用户ID**: {state['user_id']}
+- **语言**: {state['language']}
+- **优化级别**: {state['optimization_level']}"""
 
     def _generate_detailed_algorithm_analysis(self, state: GlobalState) -> str:
         """生成详细算法分析"""
