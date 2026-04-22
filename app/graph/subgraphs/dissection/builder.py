@@ -11,7 +11,6 @@
 
 from typing import Dict, Any, Optional
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
 
 from app.graph.state import (
     DissectionState,
@@ -22,6 +21,7 @@ from app.graph.subgraphs.dissection.nodes import (
     visual_generator_node
 )
 from app.core.logger import get_logger
+from app.core.checkpointer import create_checkpointer
 
 logger = get_logger(__name__)
 
@@ -122,16 +122,16 @@ class DissectionSubgraphBuilder:
         """
         if not self.graph:
             raise ValueError("子图尚未构建，请先调用 build_dissection_subgraph()")
-        
+
         logger.info("编译算法拆解子图")
-        
-        # 使用默认的内存检查点保存器
+
+        # 使用统一的 checkpointer 创建逻辑
         if checkpointer is None:
-            checkpointer = MemorySaver()
-        
+            checkpointer = create_checkpointer()
+
         # 编译子图
         self.compiled_graph = self.graph.compile(checkpointer=checkpointer)
-        
+
         logger.info("算法拆解子图编译完成")
         return self.compiled_graph
     
@@ -389,27 +389,37 @@ class DissectionSubgraphManager:
         }
 
 
-# 工厂函数
+# ============================================================================
+# LangGraph Studio 工厂函数
+# ============================================================================
 
-def create_dissection_subgraph(checkpointer=None) -> Any:
+def create_dissection_subgraph_for_studio(checkpointer=None) -> Any:
     """
-    创建算法拆解子图的工厂函数
+    创建算法拆解子图的工厂函数（用于 LangGraph Studio）
 
     Args:
         checkpointer: 检查点保存器
+            - 如果为 None：使用 create_checkpointer() 创建
+            - 如果为 dict：LangGraph Studio 传入的配置，忽略并使用 create_checkpointer()
+            - 如果为 BaseCheckpointSaver：直接使用
 
     Returns:
         编译后的算法拆解子图
     """
+    # LangGraph Studio 传入的是 dict 配置，我们需要忽略它
+    if checkpointer is None or isinstance(checkpointer, dict):
+        checkpointer = None  # 让 Manager 使用默认的 create_checkpointer()
+
     manager = DissectionSubgraphManager()
     return manager.initialize_subgraph(checkpointer)
 
 
-def create_dissection_manager() -> DissectionSubgraphManager:
-    """
-    创建算法拆解子图管理器的工厂函数
+# ============================================================================
+# 导出
+# ============================================================================
 
-    Returns:
-        算法拆解子图管理器实例
-    """
-    return DissectionSubgraphManager()
+__all__ = [
+    "DissectionState",
+    "DissectionSubgraphBuilder",
+    "DissectionSubgraphManager",
+]

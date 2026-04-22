@@ -27,8 +27,6 @@ from app.graph.subgraphs.review.nodes import (
 from app.graph.subgraphs.review.builder import (
     ReviewSubgraphBuilder,
     ReviewSubgraphManager,
-    create_review_subgraph,
-    create_review_manager
 )
 
 __all__ = [
@@ -55,8 +53,4 @@ __all__ = [
     # 构建器和管理器
     "ReviewSubgraphBuilder",
     "ReviewSubgraphManager",
-
-    # 工厂函数
-    "create_review_subgraph",
-    "create_review_manager"
 ]

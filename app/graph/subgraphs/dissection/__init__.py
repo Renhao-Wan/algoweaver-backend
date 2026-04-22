@@ -31,8 +31,6 @@ from .nodes import (
 from .builder import (
     DissectionSubgraphBuilder,
     DissectionSubgraphManager,
-    create_dissection_subgraph,
-    create_dissection_manager
 )
 
 __all__ = [
@@ -55,8 +53,4 @@ __all__ = [
     # 构建器和管理器
     "DissectionSubgraphBuilder",
     "DissectionSubgraphManager",
-
-    # 工厂函数
-    "create_dissection_subgraph",
-    "create_dissection_manager"
 ]

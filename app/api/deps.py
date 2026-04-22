@@ -24,10 +24,10 @@ API 依赖注入模块
 from typing import Optional
 
 from fastapi import Depends, HTTPException, status
-from langgraph.checkpoint.memory import MemorySaver
 
 from app.core.config import Settings, get_settings
 from app.core.logger import get_logger
+from app.core.checkpointer import get_checkpointer
 from app.graph.main_graph import MainGraphManager
 
 logger = get_logger(__name__)
@@ -65,16 +65,17 @@ def get_graph_manager() -> MainGraphManager:
         MainGraphManager: 主图管理器实例
 
     Note:
-        LLM 实例由各个节点通过 get_llm_instance() 获取，无需在此传入
+        - LLM 实例由各个节点通过 get_llm_instance() 获取
+        - Checkpointer 通过 get_checkpointer() 获取（单例）
     """
     global _graph_manager_instance
 
     if _graph_manager_instance is None:
         try:
-            # 创建 Checkpointer（使用内存存储）
-            checkpointer = MemorySaver()
+            # 获取全局 checkpointer 实例
+            checkpointer = get_checkpointer()
 
-            # 创建主图管理器（不再需要传入 llm）
+            # 创建主图管理器
             _graph_manager_instance = MainGraphManager(checkpointer=checkpointer)
             logger.info("主图管理器创建成功")
 
@@ -158,9 +159,13 @@ def clear_dependency_cache():
     用于测试或配置更新后重新初始化依赖。
     """
     from app.core.llm import clear_llm_cache
+    from app.core.checkpointer import clear_checkpointer_cache
 
     # 清除 LLM 缓存
     clear_llm_cache()
+
+    # 清除 Checkpointer 缓存
+    clear_checkpointer_cache()
 
     # 清除 Graph Manager 缓存
     global _graph_manager_instance

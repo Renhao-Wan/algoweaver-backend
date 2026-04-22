@@ -3,6 +3,7 @@ FastAPI 应用入口
 
 负责创建 FastAPI 实例、配置中间件、注册路由和 WebSocket 端点。
 """
+import os
 from contextlib import asynccontextmanager
 from uuid import uuid4
 from typing import Any, cast
@@ -18,6 +19,16 @@ from app.core.logger import setup_logging, get_logger, request_id_var, user_id_v
 settings = get_settings()
 setup_logging()
 logger = get_logger(__name__)
+
+# 配置 LangSmith 追踪
+if settings.langsmith_tracing and settings.langsmith_api_key:
+    os.environ["LANGCHAIN_TRACING_V2"] = "true"
+    os.environ["LANGCHAIN_API_KEY"] = settings.langsmith_api_key
+    os.environ["LANGCHAIN_PROJECT"] = settings.langsmith_project
+    os.environ["LANGCHAIN_ENDPOINT"] = settings.langsmith_endpoint
+    logger.info("LangSmith 追踪已启用")
+else:
+    logger.info("LangSmith 追踪未启用")
 
 
 @asynccontextmanager

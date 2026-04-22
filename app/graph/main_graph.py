@@ -17,13 +17,32 @@
 - 状态持久化：通过 Checkpointer 支持任务暂停和恢复
 - Human-in-the-loop：强制人工确认关键决策
 - 错误恢复：自动重试和降级处理
+
+
+Checkpointer 传递链路：
+
+应用运行时（单例模式）：
+  FastAPI → get_graph_manager()
+    → MainGraphManager(checkpointer=get_checkpointer())  # 全局单例
+      → MainGraphBuilder(checkpointer=单例)
+        → dissection_subgraph.compile(checkpointer=单例)  # 传递给子图
+        → review_subgraph.compile(checkpointer=单例)      # 传递给子图
+  结果：主图和所有子图共享同一个 checkpointer 实例
+
+LangGraph Studio（独立实例）：
+  langgraph.json → create_main_graph_for_studio(checkpointer=None)
+    → MainGraphBuilder(checkpointer=create_checkpointer())  # 新实例
+      → dissection_subgraph.compile(checkpointer=新实例)  # 传递给子图
+      → review_subgraph.compile(checkpointer=新实例)      # 传递给子图
+  结果：每次调试使用独立的 checkpointer 实例
 """
 
 from typing import Dict, Any
 from datetime import datetime, timezone
 from dataclasses import asdict
+import time
+import uuid
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import interrupt
 
 from app.graph.state import (
@@ -34,14 +53,14 @@ from app.graph.state import (
     HumanDecision
 )
 from app.graph.supervisor.agent import (
-    SupervisorAgent,
     NextStep,
     supervisor_analyze_task_node,
     supervisor_routing_node
 )
 from app.graph.subgraphs.dissection.builder import DissectionSubgraphBuilder
 from app.graph.subgraphs.review.builder import ReviewSubgraphBuilder
-from app.core.logger import get_logger
+from app.core.logger import get_logger, log_graph_execution, log_agent_execution
+from app.core.checkpointer import create_checkpointer
 
 logger = get_logger(__name__)
 
@@ -59,12 +78,13 @@ class MainGraphBuilder:
         初始化主图构建器
 
         Args:
-            checkpointer: 状态持久化器，默认使用 MemorySaver
+            checkpointer: 状态持久化器，如果为 None 则创建新实例
 
         Note:
-            LLM 实例由各个节点通过 get_llm_instance() 获取，无需在构建时传入
+            - LLM 实例由各个节点通过 get_llm_instance() 获取
+            - Checkpointer 通过 create_checkpointer() 创建（使用统一配置）
         """
-        self.checkpointer = checkpointer or MemorySaver()
+        self.checkpointer = checkpointer or create_checkpointer()
         self.graph = None
         self.compiled_graph = None
 
@@ -77,14 +97,16 @@ class MainGraphBuilder:
         logger.info("构建算法拆解子图")
         builder = DissectionSubgraphBuilder()
         subgraph = builder.build_dissection_subgraph()
-        return subgraph.compile()
+        # 使用主图的 checkpointer 编译子图
+        return subgraph.compile(checkpointer=self.checkpointer)
 
     def _build_review_subgraph(self):
         """构建代码评审子图"""
         logger.info("构建代码评审子图")
         builder = ReviewSubgraphBuilder()
         subgraph = builder.build_review_subgraph()
-        return subgraph.compile()
+        # 使用主图的 checkpointer 编译子图
+        return subgraph.compile(checkpointer=self.checkpointer)
 
     def build_main_graph(self) -> StateGraph:
         """
@@ -239,11 +261,30 @@ class MainGraphBuilder:
         """
         logger.info("调用算法拆解子图")
 
+        # 生成追踪ID
+        trace_id = state.get("task_id", str(uuid.uuid4()))
+        span_id = str(uuid.uuid4())
+        start_time = time.time()
+
         try:
             # 更新状态
             state["current_phase"] = Phase.DISSECTION
             state["status"] = StateTaskStatus.ANALYZING
             state["updated_at"] = datetime.now(timezone.utc)
+
+            # 记录子图调用开始
+            log_graph_execution(
+                graph_name="main_graph",
+                node_name="dissection_subgraph",
+                task_id=trace_id,
+                state_snapshot={
+                    "phase": state["current_phase"].value,
+                    "status": state["status"].value,
+                    "progress": state.get("progress", 0.0)
+                },
+                trace_id=trace_id,
+                span_id=span_id
+            )
 
             # 使用 StateConverter 转换状态
             dissection_state = StateConverter.global_to_dissection(state)
@@ -254,12 +295,45 @@ class MainGraphBuilder:
             # 使用 StateConverter 合并结果
             state = StateConverter.dissection_to_global(state, result)
 
+            # 计算执行时间
+            duration_ms = (time.time() - start_time) * 1000
+
+            # 记录子图调用完成
+            log_graph_execution(
+                graph_name="main_graph",
+                node_name="dissection_subgraph",
+                task_id=trace_id,
+                state_snapshot={
+                    "phase": state["current_phase"].value,
+                    "status": state["status"].value,
+                    "progress": state.get("progress", 0.0),
+                    "has_explanation": bool(state.get("algorithm_explanation"))
+                },
+                duration_ms=duration_ms,
+                trace_id=trace_id,
+                span_id=span_id
+            )
+
             logger.info("算法拆解子图执行完成")
 
         except Exception as e:
-            logger.error(f"算法拆解子图执行失败: {str(e)}")
-            state["last_error"] = f"算法拆解失败: {str(e)}"
+            duration_ms = (time.time() - start_time) * 1000
+            error_msg = f"算法拆解失败: {str(e)}"
+
+            logger.error(error_msg)
+            state["last_error"] = error_msg
             state["retry_count"] = state.get("retry_count", 0) + 1
+
+            # 记录错误
+            log_graph_execution(
+                graph_name="main_graph",
+                node_name="dissection_subgraph",
+                task_id=trace_id,
+                duration_ms=duration_ms,
+                error=error_msg,
+                trace_id=trace_id,
+                span_id=span_id
+            )
 
         return state
 
@@ -275,11 +349,30 @@ class MainGraphBuilder:
         """
         logger.info("调用代码评审子图")
 
+        # 生成追踪ID
+        trace_id = state.get("task_id", str(uuid.uuid4()))
+        span_id = str(uuid.uuid4())
+        start_time = time.time()
+
         try:
             # 更新状态
             state["current_phase"] = Phase.REVIEW
             state["status"] = StateTaskStatus.OPTIMIZING
             state["updated_at"] = datetime.now(timezone.utc)
+
+            # 记录子图调用开始
+            log_graph_execution(
+                graph_name="main_graph",
+                node_name="review_subgraph",
+                task_id=trace_id,
+                state_snapshot={
+                    "phase": state["current_phase"].value,
+                    "status": state["status"].value,
+                    "progress": state.get("progress", 0.0)
+                },
+                trace_id=trace_id,
+                span_id=span_id
+            )
 
             # 使用 StateConverter 转换状态
             review_state = StateConverter.global_to_review(state)
@@ -290,12 +383,46 @@ class MainGraphBuilder:
             # 使用 StateConverter 合并结果
             state = StateConverter.review_to_global(state, result)
 
+            # 计算执行时间
+            duration_ms = (time.time() - start_time) * 1000
+
+            # 记录子图调用完成
+            log_graph_execution(
+                graph_name="main_graph",
+                node_name="review_subgraph",
+                task_id=trace_id,
+                state_snapshot={
+                    "phase": state["current_phase"].value,
+                    "status": state["status"].value,
+                    "progress": state.get("progress", 0.0),
+                    "has_issues": bool(state.get("detected_issues")),
+                    "has_suggestions": bool(state.get("optimization_suggestions"))
+                },
+                duration_ms=duration_ms,
+                trace_id=trace_id,
+                span_id=span_id
+            )
+
             logger.info("代码评审子图执行完成")
 
         except Exception as e:
-            logger.error(f"代码评审子图执行失败: {str(e)}")
-            state["last_error"] = f"代码评审失败: {str(e)}"
+            duration_ms = (time.time() - start_time) * 1000
+            error_msg = f"代码评审失败: {str(e)}"
+
+            logger.error(error_msg)
+            state["last_error"] = error_msg
             state["retry_count"] = state.get("retry_count", 0) + 1
+
+            # 记录错误
+            log_graph_execution(
+                graph_name="main_graph",
+                node_name="review_subgraph",
+                task_id=trace_id,
+                duration_ms=duration_ms,
+                error=error_msg,
+                trace_id=trace_id,
+                span_id=span_id
+            )
 
         return state
 
@@ -384,6 +511,11 @@ class MainGraphBuilder:
         """
         logger.info("生成任务执行总结")
 
+        # 生成追踪ID
+        trace_id = state.get("task_id", str(uuid.uuid4()))
+        span_id = str(uuid.uuid4())
+        start_time = time.time()
+
         try:
             from app.core.llm import get_llm_instance
             from app.graph.supervisor.agent import SupervisorAgent
@@ -394,6 +526,17 @@ class MainGraphBuilder:
             state["progress"] = 1.0
             state["updated_at"] = datetime.now(timezone.utc)
 
+            # 记录节点执行开始
+            log_agent_execution(
+                agent_name="supervisor",
+                agent_type="supervisor",
+                phase="summary_generation",
+                task_id=trace_id,
+                inputs={"state_keys": list(state.keys())},
+                trace_id=trace_id,
+                span_id=span_id
+            )
+
             # 创建 Supervisor 实例生成总结
             llm = get_llm_instance()
             supervisor = SupervisorAgent(llm)
@@ -402,12 +545,42 @@ class MainGraphBuilder:
             # 保存总结到共享上下文
             state["shared_context"]["final_summary"] = summary
 
+            # 计算执行时间
+            duration_ms = (time.time() - start_time) * 1000
+
+            # 记录节点执行完成
+            log_agent_execution(
+                agent_name="supervisor",
+                agent_type="supervisor",
+                phase="summary_generation",
+                task_id=trace_id,
+                outputs={"summary_length": len(summary) if summary else 0},
+                duration_ms=duration_ms,
+                trace_id=trace_id,
+                span_id=span_id
+            )
+
             logger.info("任务执行总结生成完成")
 
         except Exception as e:
-            logger.error(f"总结生成失败: {str(e)}")
-            state["last_error"] = f"总结生成失败: {str(e)}"
+            duration_ms = (time.time() - start_time) * 1000
+            error_msg = f"总结生成失败: {str(e)}"
+
+            logger.error(error_msg)
+            state["last_error"] = error_msg
             state["status"] = StateTaskStatus.FAILED
+
+            # 记录错误
+            log_agent_execution(
+                agent_name="supervisor",
+                agent_type="supervisor",
+                phase="summary_generation",
+                task_id=trace_id,
+                duration_ms=duration_ms,
+                error=error_msg,
+                trace_id=trace_id,
+                span_id=span_id
+            )
 
         return state
 
@@ -523,21 +696,38 @@ class MainGraphBuilder:
 
 
 # ============================================================================
-# 工厂函数
+# LangGraph Studio 工厂函数
 # ============================================================================
 
-def create_main_graph(llm=None, checkpointer=None):
+def create_main_graph_for_studio(checkpointer=None):
     """
-    创建并编译主图
+    创建主图的工厂函数（用于 LangGraph Studio）
+
+    LangGraph Studio 在独立进程中运行，会调用此函数创建图实例。
+    此函数使用与应用相同的配置逻辑（通过 create_checkpointer），
+    确保行为一致。
 
     Args:
-        llm: LLM 实例
         checkpointer: 状态持久化器
+            - 如果为 None：使用 create_checkpointer() 创建
+            - 如果为 dict：LangGraph Studio 传入的配置，忽略并使用 create_checkpointer()
+            - 如果为 BaseCheckpointSaver：直接使用
 
     Returns:
         编译后的主图
+
+    Note:
+        - 环境变量从 .env.dev 读取（与应用相同）
+        - LLM 实例通过 get_llm_instance() 获取（使用相同配置）
+        - Checkpointer 通过 create_checkpointer() 创建（使用相同配置）
+        - LangGraph Studio 传入的 checkpointer 是 dict 配置对象，需要忽略
     """
-    builder = MainGraphBuilder(llm=llm, checkpointer=checkpointer)
+    # LangGraph Studio 传入的是 dict 配置，我们需要忽略它
+    # 使用我们自己的 checkpointer 创建逻辑
+    if checkpointer is None or isinstance(checkpointer, dict):
+        checkpointer = None  # 让 MainGraphBuilder 使用默认的 create_checkpointer()
+
+    builder = MainGraphBuilder(checkpointer=checkpointer)
     return builder.compile()
 
 

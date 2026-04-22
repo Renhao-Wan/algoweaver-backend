@@ -1,10 +1,27 @@
 {
   "dependencies": ["."],
   "graphs": {
-    "main_graph": "./app/graph/main_graph.py:create_main_graph",
-    "dissection_subgraph": "./app/graph/subgraphs/dissection/builder.py:create_dissection_subgraph",
-    "review_subgraph": "./app/graph/subgraphs/review/builder.py:create_review_subgraph"
+    "main_graph": "./app/graph/main_graph.py:create_main_graph_for_studio",
+    "dissection_subgraph": "./app/graph/subgraphs/dissection/builder.py:create_dissection_subgraph_for_studio",
+    "review_subgraph": "./app/graph/subgraphs/review/builder.py:create_review_subgraph_for_studio"
   },
-  "env": ".env",
-  "python_version": "3.11"
+  "env": ".env.dev",
+  "python_version": "3.11",
+  "store": {
+    "type": "memory"
+  },
+  "tracing": {
+    "enabled": true,
+    "langsmith": {
+      "project": "algoweaver-ai",
+      "api_key_env": "LANGSMITH_API_KEY",
+      "endpoint_env": "LANGSMITH_ENDPOINT"
+    }
+  },
+  "visualization": {
+    "show_state": true,
+    "show_inputs": true,
+    "show_outputs": true,
+    "max_depth": 10
+  }
 }

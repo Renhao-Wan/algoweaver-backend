@@ -60,17 +60,17 @@ class StructuredFormatter(logging.Formatter):
 
 class LangSmithHandler(logging.Handler):
     """LangSmith 追踪日志处理器"""
-    
+
     def __init__(self):
         super().__init__()
         self.langsmith_client = None
         self._init_langsmith_client()
-    
+
     def _init_langsmith_client(self):
         """初始化 LangSmith 客户端"""
         if not settings.langsmith_tracing or not settings.langsmith_api_key:
             return
-        
+
         try:
             from langsmith import Client
             self.langsmith_client = Client(
@@ -81,17 +81,17 @@ class LangSmithHandler(logging.Handler):
             logging.getLogger(__name__).warning("LangSmith 客户端未安装，跳过追踪日志")
         except Exception as e:
             logging.getLogger(__name__).error(f"初始化 LangSmith 客户端失败: {e}")
-    
+
     def emit(self, record: logging.LogRecord):
         """
         发送日志到 LangSmith
-        
+
         Args:
             record: 日志记录对象
         """
         if not self.langsmith_client:
             return
-        
+
         try:
             # 构建追踪数据
             trace_data = {
@@ -103,11 +103,35 @@ class LangSmithHandler(logging.Handler):
                 "function": record.funcName,
                 "line": record.lineno,
             }
-            
+
+            # 添加请求上下文
+            if hasattr(record, "request_id"):
+                trace_data["request_id"] = record.request_id
+            if hasattr(record, "user_id"):
+                trace_data["user_id"] = record.user_id
+
+            # 添加追踪上下文
+            if hasattr(record, "trace_id"):
+                trace_data["trace_id"] = record.trace_id
+            if hasattr(record, "span_id"):
+                trace_data["span_id"] = record.span_id
+            if hasattr(record, "parent_span_id"):
+                trace_data["parent_span_id"] = record.parent_span_id
+
+            # 添加智能体执行上下文
+            if hasattr(record, "agent_name"):
+                trace_data["agent_name"] = record.agent_name
+            if hasattr(record, "agent_type"):
+                trace_data["agent_type"] = record.agent_type
+            if hasattr(record, "task_id"):
+                trace_data["task_id"] = record.task_id
+            if hasattr(record, "phase"):
+                trace_data["phase"] = record.phase
+
             # 添加异常信息
             if record.exc_info:
                 trace_data["exception"] = self.format(record)
-            
+
             # 发送到 LangSmith
             self.langsmith_client.create_run(
                 name=f"log_{record.levelname.lower()}",
@@ -241,13 +265,18 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
 
-def log_with_context(logger: logging.Logger, level: int, message: str, 
+def log_with_context(logger: logging.Logger, level: int, message: str,
                     extra_fields: Optional[Dict[str, Any]] = None,
                     trace_id: Optional[str] = None,
-                    span_id: Optional[str] = None) -> None:
+                    span_id: Optional[str] = None,
+                    parent_span_id: Optional[str] = None,
+                    agent_name: Optional[str] = None,
+                    agent_type: Optional[str] = None,
+                    task_id: Optional[str] = None,
+                    phase: Optional[str] = None) -> None:
     """
     带上下文信息的日志记录
-    
+
     Args:
         logger: 日志器实例
         level: 日志级别
@@ -255,18 +284,38 @@ def log_with_context(logger: logging.Logger, level: int, message: str,
         extra_fields: 额外字段
         trace_id: 追踪ID
         span_id: 跨度ID
+        parent_span_id: 父跨度ID
+        agent_name: 智能体名称
+        agent_type: 智能体类型
+        task_id: 任务ID
+        phase: 执行阶段
     """
     extra = {}
-    
+
     if extra_fields:
         extra["extra_fields"] = extra_fields
-    
+
     if trace_id:
         extra["trace_id"] = trace_id
-    
+
     if span_id:
         extra["span_id"] = span_id
-    
+
+    if parent_span_id:
+        extra["parent_span_id"] = parent_span_id
+
+    if agent_name:
+        extra["agent_name"] = agent_name
+
+    if agent_type:
+        extra["agent_type"] = agent_type
+
+    if task_id:
+        extra["task_id"] = task_id
+
+    if phase:
+        extra["phase"] = phase
+
     logger.log(level, message, extra=extra)
 
 
@@ -324,3 +373,136 @@ app_logger = get_logger("algoweaver.app")
 api_logger = get_logger("algoweaver.api")
 agent_logger = get_logger("algoweaver.agent")
 sandbox_logger = get_logger("algoweaver.sandbox")
+
+
+def log_agent_execution(
+    agent_name: str,
+    agent_type: str,
+    phase: str,
+    task_id: Optional[str] = None,
+    inputs: Optional[Dict[str, Any]] = None,
+    outputs: Optional[Dict[str, Any]] = None,
+    duration_ms: Optional[float] = None,
+    error: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    span_id: Optional[str] = None,
+    parent_span_id: Optional[str] = None
+) -> None:
+    """
+    记录智能体执行日志
+
+    专门用于追踪智能体的执行过程，包括输入、输出、耗时等信息。
+
+    Args:
+        agent_name: 智能体名称
+        agent_type: 智能体类型 (supervisor/dissection/review)
+        phase: 执行阶段
+        task_id: 任务ID
+        inputs: 输入数据
+        outputs: 输出数据
+        duration_ms: 执行耗时（毫秒）
+        error: 错误信息
+        trace_id: 追踪ID
+        span_id: 跨度ID
+        parent_span_id: 父跨度ID
+    """
+    message = f"智能体执行: {agent_name} ({agent_type}) - {phase}"
+
+    extra_fields = {
+        "agent_name": agent_name,
+        "agent_type": agent_type,
+        "phase": phase,
+    }
+
+    if task_id:
+        extra_fields["task_id"] = task_id
+
+    if inputs:
+        extra_fields["inputs"] = inputs
+
+    if outputs:
+        extra_fields["outputs"] = outputs
+
+    if duration_ms is not None:
+        extra_fields["duration_ms"] = duration_ms
+
+    if error:
+        extra_fields["error"] = error
+        level = logging.ERROR
+    else:
+        level = logging.INFO
+
+    log_with_context(
+        agent_logger,
+        level,
+        message,
+        extra_fields=extra_fields,
+        trace_id=trace_id,
+        span_id=span_id,
+        parent_span_id=parent_span_id,
+        agent_name=agent_name,
+        agent_type=agent_type,
+        task_id=task_id,
+        phase=phase
+    )
+
+
+def log_graph_execution(
+    graph_name: str,
+    node_name: str,
+    task_id: Optional[str] = None,
+    state_snapshot: Optional[Dict[str, Any]] = None,
+    duration_ms: Optional[float] = None,
+    error: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    span_id: Optional[str] = None,
+    parent_span_id: Optional[str] = None
+) -> None:
+    """
+    记录图执行日志
+
+    专门用于追踪 LangGraph 图的执行过程，包括节点执行、状态变化等信息。
+
+    Args:
+        graph_name: 图名称 (main_graph/dissection_subgraph/review_subgraph)
+        node_name: 节点名称
+        task_id: 任务ID
+        state_snapshot: 状态快照
+        duration_ms: 执行耗时（毫秒）
+        error: 错误信息
+        trace_id: 追踪ID
+        span_id: 跨度ID
+        parent_span_id: 父跨度ID
+    """
+    message = f"图节点执行: {graph_name}.{node_name}"
+
+    extra_fields = {
+        "graph_name": graph_name,
+        "node_name": node_name,
+    }
+
+    if task_id:
+        extra_fields["task_id"] = task_id
+
+    if state_snapshot:
+        extra_fields["state_snapshot"] = state_snapshot
+
+    if duration_ms is not None:
+        extra_fields["duration_ms"] = duration_ms
+
+    if error:
+        extra_fields["error"] = error
+        level = logging.ERROR
+    else:
+        level = logging.INFO
+
+    log_with_context(
+        agent_logger,
+        level,
+        message,
+        extra_fields=extra_fields,
+        trace_id=trace_id,
+        span_id=span_id,
+        parent_span_id=parent_span_id,
+        task_id=task_id
+    )

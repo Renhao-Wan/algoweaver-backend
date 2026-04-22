@@ -11,7 +11,6 @@ import uuid
 
 from app.graph.main_graph import MainGraphManager
 from app.graph.state import GlobalState, Phase, IssueType
-from app.graph.state import StateTaskStatus
 from app.schemas.requests import TaskRequest, OptimizationLevel, ReportGenerationRequest
 from app.schemas.responses import (
     TaskCreationResponse,

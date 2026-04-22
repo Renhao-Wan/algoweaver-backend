@@ -13,7 +13,6 @@
 
 from typing import Dict, Any, Optional
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
 
 from app.graph.state import (
     ReviewState,
@@ -28,6 +27,7 @@ from app.graph.subgraphs.review.nodes import (
     validation_tester_node
 )
 from app.core.logger import get_logger
+from app.core.checkpointer import create_checkpointer
 
 logger = get_logger(__name__)
 
@@ -135,9 +135,9 @@ class ReviewSubgraphBuilder:
 
         logger.info("编译代码评审子图")
 
-        # 使用默认的内存检查点保存器
+        # 使用统一的 checkpointer 创建逻辑
         if checkpointer is None:
-            checkpointer = MemorySaver()
+            checkpointer = create_checkpointer()
 
         # 编译子图
         self.compiled_graph = self.graph.compile(checkpointer=checkpointer)
@@ -387,33 +387,41 @@ class ReviewSubgraphManager:
         }
 
 
-# 工厂函数
+# ============================================================================
+# LangGraph Studio 工厂函数
+# ============================================================================
 
-def create_review_subgraph(checkpointer=None, max_review_rounds: int = 3) -> Any:
+def create_review_subgraph_for_studio(checkpointer=None) -> Any:
     """
-    创建代码评审子图的工厂函数
+    创建代码评审子图的工厂函数（用于 LangGraph Studio）
 
     Args:
         checkpointer: 检查点保存器
-        max_review_rounds: 最大评审轮次
+            - 如果为 None：使用 create_checkpointer() 创建
+            - 如果为 dict：LangGraph Studio 传入的配置，忽略并使用 create_checkpointer()
+            - 如果为 BaseCheckpointSaver：直接使用
 
     Returns:
         编译后的代码评审子图
+
+    Note:
+        使用默认的最大评审轮次（3轮）
     """
-    manager = ReviewSubgraphManager(max_review_rounds)
+    # LangGraph Studio 传入的是 dict 配置，我们需要忽略它
+    if checkpointer is None or isinstance(checkpointer, dict):
+        checkpointer = None  # 让 Manager 使用默认的 create_checkpointer()
+
+    manager = ReviewSubgraphManager(max_review_rounds=3)
     return manager.initialize_subgraph(checkpointer)
 
 
+# ============================================================================
+# 导出
+# ============================================================================
 
-def create_review_manager(max_review_rounds: int = 3) -> ReviewSubgraphManager:
-    """
-    创建代码评审子图管理器的工厂函数
-
-    Args:
-        max_review_rounds: 最大评审轮次
-
-    Returns:
-        代码评审子图管理器实例
-    """
-    return ReviewSubgraphManager(max_review_rounds)
+__all__ = [
+    "ReviewState",
+    "ReviewSubgraphBuilder",
+    "ReviewSubgraphManager",
+]
 
