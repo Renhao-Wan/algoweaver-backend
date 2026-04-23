@@ -129,16 +129,16 @@ class SupervisorAgent:
             任务执行计划
         """
         try:
-            logger.info(f"开始分析任务 {state['task_id']}")
+            task_id = state.get('task_id', 'unknown')
+            logger.info(f"开始分析任务 {task_id}")
 
-            # 准备提示词输入
+            # 准备提示词输入（必需字段直接访问，可选字段使用 get）
             prompt_input = {
-                "user_id": state['user_id'],
                 "task_id": state['task_id'],
+                "user_id": state['user_id'],
                 "code": state['original_code'],
                 "language": state['language'],
-                "optimization_level": state['optimization_level'],
-                "custom_requirements": state.get('shared_context', {}).get('custom_requirements', '无特殊要求')
+                "optimization_level": state['optimization_level']
             }
 
             # 调用 LLM 进行任务分析
@@ -175,7 +175,10 @@ class SupervisorAgent:
             路由决策
         """
         try:
-            logger.info(f"进行路由决策，当前阶段: {state['current_phase']}")
+            # 安全获取 current_phase
+            current_phase = state.get('current_phase', Phase.ANALYSIS)
+            current_phase_value = current_phase.value if hasattr(current_phase, 'value') else str(current_phase)
+            logger.info(f"进行路由决策，当前阶段: {current_phase_value}")
 
             # 检查是否需要人工干预
             if state.get('human_intervention_required', False):
@@ -442,19 +445,27 @@ class SupervisorAgent:
         else:
             pending_steps.append("优化建议")
 
+        # 必需字段直接访问
+        current_phase = state['current_phase']
+        current_phase_value = current_phase.value if hasattr(current_phase, 'value') else str(current_phase)
+
+        # 预计算条件表达式的值
+        algorithm_explanation_status = "已完成" if state.get('algorithm_explanation') else "未完成"
+        human_intervention_status = "是" if state['human_intervention_required'] else "否"
+
         return {
             "task_id": state['task_id'],
-            "current_phase": state['current_phase'].value,
+            "current_phase": current_phase_value,
             "progress": int(state['progress'] * 100),
             "completed_steps": ", ".join(completed_steps) if completed_steps else "无",
             "pending_steps": ", ".join(pending_steps) if pending_steps else "无",
             "execution_history": self._format_execution_history(state),
-            "algorithm_explanation": state.get('algorithm_explanation') is not None,
+            "algorithm_explanation_status": algorithm_explanation_status,
             "detected_issues_count": len(state.get('detected_issues', [])),
             "suggestions_count": len(state.get('optimization_suggestions', [])),
             "quality_score": state.get('shared_context', {}).get('quality_metrics', {}).get('overall_score', 0),
             "optimization_level": state['optimization_level'],
-            "human_intervention_required": state.get('human_intervention_required', False)
+            "human_intervention_status": human_intervention_status
         }
 
     def _parse_routing_decision(self, response: str) -> RoutingDecision:
@@ -483,7 +494,7 @@ class SupervisorAgent:
     def _get_default_routing_decision(self, state: GlobalState) -> RoutingDecision:
         """获取默认路由决策"""
         # 根据当前阶段决定下一步
-        current_phase = state['current_phase']
+        current_phase = state.get('current_phase', Phase.ANALYSIS)
 
         if current_phase == Phase.ANALYSIS:
             return RoutingDecision(
@@ -587,13 +598,15 @@ class SupervisorAgent:
 
     def _prepare_summary_input(self, state: GlobalState) -> Dict[str, Any]:
         """准备总结生成的输入"""
-        duration = (state['updated_at'] - state['created_at']).total_seconds()
+        created_at = state.get('created_at', datetime.now(timezone.utc))
+        updated_at = state.get('updated_at', datetime.now(timezone.utc))
+        duration = (updated_at - created_at).total_seconds()
 
         return {
-            "task_id": state['task_id'],
-            "user_id": state['user_id'],
-            "start_time": state['created_at'].isoformat(),
-            "end_time": state['updated_at'].isoformat(),
+            "task_id": state.get('task_id', 'unknown'),
+            "user_id": state.get('user_id', 'unknown'),
+            "start_time": created_at.isoformat(),
+            "end_time": updated_at.isoformat(),
             "duration": f"{int(duration)}秒",
             "execution_results": self._format_execution_results(state),
             "algorithm_analysis": self._format_algorithm_analysis(state),
@@ -604,12 +617,17 @@ class SupervisorAgent:
 
     def _generate_default_summary(self, state: GlobalState) -> str:
         """生成默认总结"""
+        task_id = state.get('task_id', 'unknown')
+        status = state.get('status', StateTaskStatus.PENDING)
+        status_value = status.value if hasattr(status, 'value') else str(status)
+        progress = int(state.get('progress', 0.0) * 100)
+
         return f"""# 任务执行总结
 
 ## 任务信息
-- 任务ID: {state['task_id']}
-- 状态: {state['status'].value}
-- 进度: {int(state['progress'] * 100)}%
+- 任务ID: {task_id}
+- 状态: {status_value}
+- 进度: {progress}%
 
 ## 执行结果
 任务已完成基本处理。
@@ -644,15 +662,25 @@ class SupervisorAgent:
 
         completed_str = "、".join(completed_tasks) if completed_tasks else "无"
 
-        return f"""当前任务处于 {state['current_phase'].value} 阶段，进度 {int(state['progress'] * 100)}%。
+        # 安全获取 current_phase 和 progress
+        current_phase = state.get('current_phase', Phase.ANALYSIS)
+        current_phase_value = current_phase.value if hasattr(current_phase, 'value') else str(current_phase)
+        progress = int(state.get('progress', 0.0) * 100)
+
+        return f"""当前任务处于 {current_phase_value} 阶段，进度 {progress}%。
 已完成: {completed_str}"""
 
     def _format_execution_results(self, state: GlobalState) -> str:
         """格式化执行结果"""
         results = []
-        results.append(f"- 状态: {state['status'].value}")
-        results.append(f"- 进度: {int(state['progress'] * 100)}%")
-        results.append(f"- 代码版本: {len(state['code_versions'])} 个")
+        status = state.get('status', StateTaskStatus.PENDING)
+        status_value = status.value if hasattr(status, 'value') else str(status)
+        progress = int(state.get('progress', 0.0) * 100)
+        code_versions = state.get('code_versions', [])
+
+        results.append(f"- 状态: {status_value}")
+        results.append(f"- 进度: {progress}%")
+        results.append(f"- 代码版本: {len(code_versions)} 个")
 
         return "\n".join(results)
 
@@ -727,18 +755,29 @@ async def supervisor_analyze_task_node(state: GlobalState) -> GlobalState:
         # 分析任务
         task_plan = await supervisor.analyze_task(state)
 
-        # 更新状态
-        state['shared_context']['task_plan'] = asdict(task_plan)
-        state['status'] = StateTaskStatus.ANALYZING
-        state['current_phase'] = Phase.ANALYSIS
-
         logger.info(f"任务分析完成: {task_plan.task_type}")
+
+        # 创建状态副本
+        new_state = state.copy()
+
+        # 更新 shared_context（创建新字典避免直接修改）
+        new_shared_context = state.get('shared_context', {}).copy()
+        new_shared_context['task_plan'] = asdict(task_plan)
+
+        # 更新状态字段
+        new_state['shared_context'] = new_shared_context
+        new_state['status'] = StateTaskStatus.ANALYZING
+        new_state['current_phase'] = Phase.ANALYSIS
+
+        return new_state
 
     except Exception as e:
         logger.error(f"任务分析节点执行失败: {str(e)}")
-        state['last_error'] = str(e)
-
-    return state
+        import traceback
+        traceback.print_exc()
+        new_state = state.copy()
+        new_state['last_error'] = str(e)
+        return new_state
 
 
 async def supervisor_routing_node(state: GlobalState) -> GlobalState:
@@ -753,13 +792,23 @@ async def supervisor_routing_node(state: GlobalState) -> GlobalState:
         # 路由决策
         decision = await supervisor.route_to_next_step(state)
 
-        # 更新状态
-        state['shared_context']['routing_decision'] = asdict(decision)
-
         logger.info(f"路由决策: {decision.next_step}")
+
+        # 创建状态副本
+        new_state = state.copy()
+
+        # 更新 shared_context（创建新字典避免直接修改）
+        new_shared_context = state.get('shared_context', {}).copy()
+        new_shared_context['routing_decision'] = asdict(decision)
+
+        # 更新状态
+        new_state['shared_context'] = new_shared_context
+        return new_state
 
     except Exception as e:
         logger.error(f"路由决策节点执行失败: {str(e)}")
-        state['last_error'] = str(e)
-
-    return state
+        import traceback
+        traceback.print_exc()
+        new_state = state.copy()
+        new_state['last_error'] = str(e)
+        return new_state

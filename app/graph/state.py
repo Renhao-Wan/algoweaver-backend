@@ -15,11 +15,32 @@ LangGraph 状态定义模块（重构版）
 - ReviewState: 代码评审子图局部状态（代码质量级别）
 """
 
-from typing import Dict, List, Optional, Any, Union, TypeGuard
+from typing import Dict, List, Optional, Any, Union, TypeGuard, Annotated
 from typing_extensions import TypedDict, NotRequired
 from pydantic import BaseModel, Field
 from datetime import datetime, timezone
 from enum import Enum
+from operator import add
+
+
+# ============================================================================
+# 自定义状态合并函数
+# ============================================================================
+
+def merge_dicts(left: Dict[str, Any], right: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    合并两个字典（深度合并）
+
+    Args:
+        left: 左侧字典（现有状态）
+        right: 右侧字典（更新内容）
+
+    Returns:
+        合并后的字典
+    """
+    result = left.copy()
+    result.update(right)
+    return result
 
 
 # ============================================================================
@@ -119,10 +140,10 @@ class AlgorithmExplanation(BaseModel):
     """算法讲解"""
     steps: List[ExecutionStep] = Field(default_factory=list, description="执行步骤列表")
     pseudocode: str = Field(..., min_length=1, description="伪代码")
-    time_complexity: str = Field(..., description="时间复杂度")
-    space_complexity: str = Field(..., description="空间复杂度")
+    time_complexity: str = Field(..., description="整体时间复杂度")
+    space_complexity: str = Field(..., description="整体空间复杂度")
     visualization: Optional[str] = Field(None, description="可视化描述（Mermaid/ASCII）")
-    step_explanations: List[str] = Field(default_factory=list, description="步骤解释列表")
+    step_explanations: List[str] = Field(default_factory=list, description="步骤解释列表（用于快速概览）")
     teaching_notes: List[str] = Field(default_factory=list, description="教学要点")
     key_insights: List[str] = Field(default_factory=list, description="关键洞察")
 
@@ -139,6 +160,10 @@ class GlobalState(TypedDict):
     - Single Source of Truth: 任务级别的唯一真实来源
     - Clear Ownership: 主图拥有任务生命周期和跨子图的共享数据
     - Minimal: 只包含任务级别必需的字段
+
+    注意：
+    - 使用 Annotated[List, add] 的字段会累加更新（append）
+    - 其他字段使用默认的替换策略（replace）
     """
     # === 任务标识（必需） ===
     task_id: str
@@ -154,25 +179,22 @@ class GlobalState(TypedDict):
     current_phase: Phase
     progress: float  # 0.0 - 1.0
 
-    # === 智能体协作（必需） ===
-    collaboration_mode: CollaborationMode
-    active_agents: List[str]
-
     # === 结果数据（可选，由子图填充） ===
     algorithm_explanation: NotRequired[AlgorithmExplanation]
     detected_issues: NotRequired[List[CodeIssue]]
     optimization_suggestions: NotRequired[List[Suggestion]]
 
     # === 代码版本历史（必需） ===
-    code_versions: List[str]  # 代码演进历史
+    code_versions: Annotated[List[str], add]  # 使用 add 策略累加
 
     # === Human-in-the-loop（必需） ===
-    decision_history: List[HumanDecision]
+    decision_history: Annotated[List[HumanDecision], add]  # 使用 add 策略累加
     human_intervention_required: bool
     pending_human_decision: NotRequired[Dict[str, Any]]
 
     # === 共享上下文（必需） ===
-    shared_context: Dict[str, Any]  # 智能体间共享的临时数据
+    # 用于存储子图间共享的临时数据、路由决策、活跃智能体列表等
+    shared_context: Annotated[Dict[str, Any], merge_dicts]  # 使用 merge_dicts 策略合并
 
     # === 时间戳（必需） ===
     created_at: datetime
@@ -224,7 +246,6 @@ class DissectionState(TypedDict):
     # === 变量追踪（子图内部） ===
     variables_trace: NotRequired[Dict[str, List[Any]]]
     execution_flow: NotRequired[List[str]]
-    performance_metrics: NotRequired[Dict[str, Any]]  # 性能指标（执行时间、内存等）
 
     # === 输入数据（可选） ===
     input_data: NotRequired[Dict[str, Any]]
@@ -314,8 +335,6 @@ class StateFactory:
             status=StateTaskStatus.PENDING,
             current_phase=Phase.ANALYSIS,
             progress=0.0,
-            collaboration_mode=CollaborationMode.MASTER_EXPERT,
-            active_agents=[],
             code_versions=[code],
             decision_history=[],
             human_intervention_required=False,
@@ -414,10 +433,6 @@ class StateConverter:
             'algorithm_type': dissection_state.get('algorithm_type'),
             'data_structures_used': dissection_state.get('data_structures_used', [])
         }
-
-        # 传递性能指标到 shared_context（如果存在）
-        if 'performance_metrics' in dissection_state:
-            global_state['shared_context']['performance_metrics'] = dissection_state['performance_metrics']
 
         # 更新错误信息
         if dissection_state.get('error_info'):

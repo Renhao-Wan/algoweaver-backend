@@ -10,6 +10,7 @@
 """
 
 from typing import Dict, Any, Optional
+import uuid
 from langgraph.graph import StateGraph, END
 
 from app.graph.state import (
@@ -268,7 +269,7 @@ class DissectionSubgraphBuilder:
             错误说明对象
         """
         from app.graph.state import AlgorithmExplanation
-        
+
         return AlgorithmExplanation(
             steps=[],
             pseudocode="# 算法分析失败",
@@ -276,7 +277,8 @@ class DissectionSubgraphBuilder:
             space_complexity="未知",
             visualization=None,
             step_explanations=[f"算法分析过程中出现错误: {error_msg}"],
-            teaching_notes=["建议检查代码语法和逻辑", "确保输入数据格式正确"]
+            teaching_notes=["建议检查代码语法和逻辑", "确保输入数据格式正确"],
+            key_insights=[]
         )
 
 
@@ -393,9 +395,97 @@ class DissectionSubgraphManager:
 # LangGraph Studio 工厂函数
 # ============================================================================
 
+def _normalize_dissection_studio_input(raw_input: Dict[str, Any]) -> DissectionState:
+    """
+    将 LangGraph Studio 的输入标准化为完整的 DissectionState
+
+    Args:
+        raw_input: Studio UI 输入
+
+    Returns:
+        完整的 DissectionState
+    """
+    from app.graph.state import StateFactory
+    import uuid
+
+    # 检查是否已经是完整的 DissectionState
+    required_fields = {
+        'task_id', 'code', 'language', 'analysis_phase',
+        'execution_steps', 'current_step', 'data_structures_used'
+    }
+
+    if required_fields.issubset(raw_input.keys()):
+        logger.info("Studio 输入已是完整 DissectionState，直接使用")
+        return raw_input
+
+    # 转换为完整状态
+    logger.info("Studio 输入为简化格式，转换为完整 DissectionState")
+
+    code = raw_input.get('code', '')
+    language = raw_input.get('language', 'python')
+    task_id = raw_input.get('task_id', f"studio_dissection_{uuid.uuid4().hex[:8]}")
+    input_data = raw_input.get('input_data')
+
+    dissection_state = StateFactory.create_dissection_state(
+        task_id=task_id,
+        code=code,
+        language=language,
+        input_data=input_data
+    )
+
+    # 保留原始输入中的其他字段
+    for key, value in raw_input.items():
+        if key not in dissection_state:
+            dissection_state[key] = value
+
+    logger.info(f"DissectionState 转换完成: task_id={task_id}, language={language}")
+    return dissection_state
+
+
+def _create_dissection_studio_wrapper(subgraph, checkpointer=None):
+    """
+    创建算法拆解子图的 Studio 包装图
+
+    Args:
+        subgraph: 编译后的子图
+        checkpointer: 状态持久化器
+
+    Returns:
+        包装后的图
+    """
+    from langgraph.graph import StateGraph, END
+
+    async def normalize_input_node(state: Dict[str, Any]) -> DissectionState:
+        """标准化输入节点"""
+        logger.info("Dissection Studio 包装图：标准化输入状态")
+        normalized_state = _normalize_dissection_studio_input(state)
+        return normalized_state
+
+    async def subgraph_execution_node(state: DissectionState) -> DissectionState:
+        """执行子图节点"""
+        logger.info("Dissection Studio 包装图：执行子图")
+        result = await subgraph.ainvoke(state)
+        return result
+
+    # 创建包装图
+    wrapper_graph = StateGraph(DissectionState)
+    wrapper_graph.add_node("normalize_input", normalize_input_node)
+    wrapper_graph.add_node("subgraph_execution", subgraph_execution_node)
+
+    wrapper_graph.set_entry_point("normalize_input")
+    wrapper_graph.add_edge("normalize_input", "subgraph_execution")
+    wrapper_graph.add_edge("subgraph_execution", END)
+
+    return wrapper_graph.compile(checkpointer=checkpointer)
+
+
 def create_dissection_subgraph_for_studio(checkpointer=None) -> Any:
     """
     创建算法拆解子图的工厂函数（用于 LangGraph Studio）
+
+    **状态初始化适配**：
+    返回一个包装图，在入口处自动将 Studio 输入转换为完整的 DissectionState，
+    避免节点访问缺失字段时出现 KeyError。
 
     Args:
         checkpointer: 检查点保存器
@@ -404,14 +494,26 @@ def create_dissection_subgraph_for_studio(checkpointer=None) -> Any:
             - 如果为 BaseCheckpointSaver：直接使用
 
     Returns:
-        编译后的算法拆解子图
+        编译后的包装图（包含状态标准化逻辑）
+
+    Studio 输入格式支持：
+        1. 简化格式：{code: "...", language: "python"}
+        2. 完整 DissectionState：{task_id: "...", code: "...", analysis_phase: "...", ...}
+        3. 部分 DissectionState（自动补全缺失字段）
     """
     # LangGraph Studio 传入的是 dict 配置，我们需要忽略它
     if checkpointer is None or isinstance(checkpointer, dict):
         checkpointer = None  # 让 Manager 使用默认的 create_checkpointer()
 
+    # 构建子图
     manager = DissectionSubgraphManager()
-    return manager.initialize_subgraph(checkpointer)
+    subgraph = manager.initialize_subgraph(checkpointer)
+
+    # 创建包装图（添加状态标准化层）
+    logger.info("为 LangGraph Studio 创建 Dissection 包装图（包含状态标准化）")
+    wrapper_graph = _create_dissection_studio_wrapper(subgraph, checkpointer=checkpointer)
+
+    return wrapper_graph
 
 
 # ============================================================================

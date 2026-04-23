@@ -12,6 +12,7 @@
 """
 
 from typing import Dict, Any, Optional
+import uuid
 from langgraph.graph import StateGraph, END
 
 from app.graph.state import (
@@ -391,9 +392,99 @@ class ReviewSubgraphManager:
 # LangGraph Studio 工厂函数
 # ============================================================================
 
+def _normalize_review_studio_input(raw_input: Dict[str, Any]) -> ReviewState:
+    """
+    将 LangGraph Studio 的输入标准化为完整的 ReviewState
+
+    Args:
+        raw_input: Studio UI 输入
+
+    Returns:
+        完整的 ReviewState
+    """
+    from app.graph.state import StateFactory
+    import uuid
+
+    # 检查是否已经是完整的 ReviewState
+    required_fields = {
+        'task_id', 'code', 'language', 'optimization_level', 'review_phase',
+        'review_round', 'detected_issues', 'generated_suggestions'
+    }
+
+    if required_fields.issubset(raw_input.keys()):
+        logger.info("Studio 输入已是完整 ReviewState，直接使用")
+        return raw_input
+
+    # 转换为完整状态
+    logger.info("Studio 输入为简化格式，转换为完整 ReviewState")
+
+    code = raw_input.get('code', '')
+    language = raw_input.get('language', 'python')
+    optimization_level = raw_input.get('optimization_level', 'balanced')
+    task_id = raw_input.get('task_id', f"studio_review_{uuid.uuid4().hex[:8]}")
+    quality_threshold = raw_input.get('quality_threshold', 7.0)
+
+    review_state = StateFactory.create_review_state(
+        task_id=task_id,
+        code=code,
+        language=language,
+        optimization_level=optimization_level,
+        quality_threshold=quality_threshold
+    )
+
+    # 保留原始输入中的其他字段
+    for key, value in raw_input.items():
+        if key not in review_state:
+            review_state[key] = value
+
+    logger.info(f"ReviewState 转换完成: task_id={task_id}, language={language}")
+    return review_state
+
+
+def _create_review_studio_wrapper(subgraph, checkpointer=None):
+    """
+    创建代码评审子图的 Studio 包装图
+
+    Args:
+        subgraph: 编译后的子图
+        checkpointer: 状态持久化器
+
+    Returns:
+        包装后的图
+    """
+    from langgraph.graph import StateGraph, END
+
+    async def normalize_input_node(state: Dict[str, Any]) -> ReviewState:
+        """标准化输入节点"""
+        logger.info("Review Studio 包装图：标准化输入状态")
+        normalized_state = _normalize_review_studio_input(state)
+        return normalized_state
+
+    async def subgraph_execution_node(state: ReviewState) -> ReviewState:
+        """执行子图节点"""
+        logger.info("Review Studio 包装图：执行子图")
+        result = await subgraph.ainvoke(state)
+        return result
+
+    # 创建包装图
+    wrapper_graph = StateGraph(ReviewState)
+    wrapper_graph.add_node("normalize_input", normalize_input_node)
+    wrapper_graph.add_node("subgraph_execution", subgraph_execution_node)
+
+    wrapper_graph.set_entry_point("normalize_input")
+    wrapper_graph.add_edge("normalize_input", "subgraph_execution")
+    wrapper_graph.add_edge("subgraph_execution", END)
+
+    return wrapper_graph.compile(checkpointer=checkpointer)
+
+
 def create_review_subgraph_for_studio(checkpointer=None) -> Any:
     """
     创建代码评审子图的工厂函数（用于 LangGraph Studio）
+
+    **状态初始化适配**：
+    返回一个包装图，在入口处自动将 Studio 输入转换为完整的 ReviewState，
+    避免节点访问缺失字段时出现 KeyError。
 
     Args:
         checkpointer: 检查点保存器
@@ -402,7 +493,12 @@ def create_review_subgraph_for_studio(checkpointer=None) -> Any:
             - 如果为 BaseCheckpointSaver：直接使用
 
     Returns:
-        编译后的代码评审子图
+        编译后的包装图（包含状态标准化逻辑）
+
+    Studio 输入格式支持：
+        1. 简化格式：{code: "...", language: "python", optimization_level: "balanced"}
+        2. 完整 ReviewState：{task_id: "...", code: "...", review_phase: "...", ...}
+        3. 部分 ReviewState（自动补全缺失字段）
 
     Note:
         使用默认的最大评审轮次（3轮）
@@ -411,8 +507,15 @@ def create_review_subgraph_for_studio(checkpointer=None) -> Any:
     if checkpointer is None or isinstance(checkpointer, dict):
         checkpointer = None  # 让 Manager 使用默认的 create_checkpointer()
 
+    # 构建子图
     manager = ReviewSubgraphManager(max_review_rounds=3)
-    return manager.initialize_subgraph(checkpointer)
+    subgraph = manager.initialize_subgraph(checkpointer)
+
+    # 创建包装图（添加状态标准化层）
+    logger.info("为 LangGraph Studio 创建 Review 包装图（包含状态标准化）")
+    wrapper_graph = _create_review_studio_wrapper(subgraph, checkpointer=checkpointer)
+
+    return wrapper_graph
 
 
 # ============================================================================

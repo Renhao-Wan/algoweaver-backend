@@ -49,8 +49,8 @@ class SupervisorPrompts:
 请确保分析准确、全面且可执行。"""),
             ("human", """请分析以下任务：
 
-**用户ID**: {user_id}
 **任务ID**: {task_id}
+**用户ID**: {user_id}
 
 **代码**:
 ```{language}
@@ -59,7 +59,6 @@ class SupervisorPrompts:
 
 **编程语言**: {language}
 **优化级别**: {optimization_level}
-**用户需求**: {custom_requirements}
 
 请提供详细的任务分析和执行计划。""")
         ])
@@ -107,25 +106,25 @@ class SupervisorPrompts:
 请确保决策合理且符合任务目标。"""),
             ("human", """请根据当前状态决定下一步执行路径：
 
-**当前状态**:
-- 任务ID: {task_id}
-- 当前阶段: {current_phase}
-- 执行进度: {progress}%
-- 已完成步骤: {completed_steps}
-- 待执行步骤: {pending_steps}
+**任务ID**: {task_id}
+**当前阶段**: {current_phase}
+**执行进度**: {progress}%
+
+**已完成步骤**: {completed_steps}
+**待执行步骤**: {pending_steps}
 
 **执行历史**:
 {execution_history}
 
 **当前结果**:
-- 算法讲解: {"已完成" if algorithm_explanation else "未完成"}
-- 代码问题: {detected_issues_count} 个
+- 算法讲解: {algorithm_explanation_status}
+- 检测到的问题: {detected_issues_count} 个
 - 优化建议: {suggestions_count} 条
 - 质量评分: {quality_score}/10
 
-**用户偏好**:
+**配置**:
 - 优化级别: {optimization_level}
-- 是否需要人工确认: {human_intervention_required}
+- 需要人工确认: {human_intervention_status}
 
 请提供下一步的路由决策。""")
         ])

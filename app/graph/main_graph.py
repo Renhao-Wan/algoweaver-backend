@@ -261,8 +261,12 @@ class MainGraphBuilder:
         """
         logger.info("调用算法拆解子图")
 
+        if 'task_id' not in state:
+            logger.error(f"状态中缺少 task_id！完整状态: {state}")
+            raise KeyError("状态中缺少必需字段 task_id")
+
         # 生成追踪ID
-        trace_id = state.get("task_id", str(uuid.uuid4()))
+        trace_id = state["task_id"]
         span_id = str(uuid.uuid4())
         start_time = time.time()
 
@@ -699,6 +703,107 @@ class MainGraphBuilder:
 # LangGraph Studio 工厂函数
 # ============================================================================
 
+def _normalize_studio_input(raw_input: Dict[str, Any]) -> GlobalState:
+    """
+    将 LangGraph Studio 的输入标准化为完整的 GlobalState
+
+    Studio 输入通常是简化的 API 请求体格式（如 {code, language, optimization_level}），
+    需要转换为完整的 GlobalState 以避免节点访问缺失字段时出现 KeyError。
+
+    Args:
+        raw_input: Studio UI 输入（可能是简化格式或完整 GlobalState）
+
+    Returns:
+        完整的 GlobalState
+
+    处理三种输入场景：
+    1. 完整 GlobalState（已包含所有必需字段）→ 直接返回
+    2. API 请求体格式（{code, language, optimization_level}）→ 转换为 GlobalState
+    3. 部分 GlobalState（缺少某些必需字段）→ 补全缺失字段
+    """
+    from app.graph.state import StateFactory
+
+    # 场景 1：检查是否已经是完整的 GlobalState
+    # 通过检查关键必需字段来判断
+    required_global_fields = {
+        'task_id', 'user_id', 'original_code', 'language', 'status',
+        'current_phase', 'progress', 'shared_context', 'code_versions',
+        'decision_history', 'created_at', 'updated_at'
+    }
+
+    if required_global_fields.issubset(raw_input.keys()):
+        logger.info("Studio 输入已是完整 GlobalState，直接使用")
+        return raw_input
+
+    # 场景 2 & 3：需要转换或补全
+    logger.info("Studio 输入为简化格式，转换为完整 GlobalState")
+
+    # 提取输入字段（兼容不同命名）
+    code = raw_input.get('code') or raw_input.get('original_code', '')
+    language = raw_input.get('language', 'python')
+    optimization_level = raw_input.get('optimization_level', 'balanced')
+    task_id = raw_input.get('task_id', f"studio_task_{uuid.uuid4().hex[:8]}")
+    user_id = raw_input.get('user_id', 'studio_user')
+
+    # 使用 StateFactory 创建完整状态
+    global_state = StateFactory.create_global_state(
+        task_id=task_id,
+        user_id=user_id,
+        code=code,
+        language=language,
+        optimization_level=optimization_level
+    )
+
+    # 保留原始输入中的其他字段（如果有）
+    for key, value in raw_input.items():
+        if key not in global_state and key not in ['code']:  # 'code' 已映射到 'original_code'
+            global_state[key] = value
+
+    logger.info(f"状态转换完成: task_id={task_id}, language={language}")
+    return global_state
+
+
+def _create_studio_wrapper_graph(main_graph, checkpointer=None):
+    """
+    创建 Studio 包装图，在入口处进行状态标准化
+
+    包装图结构：
+    normalize_input (入口) → main_graph_execution → END
+
+    Args:
+        main_graph: 编译后的主图
+        checkpointer: 状态持久化器
+
+    Returns:
+        包装后的图
+    """
+    from langgraph.graph import StateGraph, END
+
+    async def normalize_input_node(state: Dict[str, Any]) -> GlobalState:
+        """标准化输入节点"""
+        logger.info("Studio 包装图：标准化输入状态")
+        normalized_state = _normalize_studio_input(state)
+        return normalized_state
+
+    async def main_graph_execution_node(state: GlobalState) -> GlobalState:
+        """执行主图节点"""
+        logger.info("Studio 包装图：执行主图")
+        # 直接调用主图（已编译）
+        result = await main_graph.ainvoke(state)
+        return result
+
+    # 创建包装图
+    wrapper_graph = StateGraph(GlobalState)
+    wrapper_graph.add_node("normalize_input", normalize_input_node)
+    wrapper_graph.add_node("main_graph_execution", main_graph_execution_node)
+
+    wrapper_graph.set_entry_point("normalize_input")
+    wrapper_graph.add_edge("normalize_input", "main_graph_execution")
+    wrapper_graph.add_edge("main_graph_execution", END)
+
+    return wrapper_graph.compile(checkpointer=checkpointer)
+
+
 def create_main_graph_for_studio(checkpointer=None):
     """
     创建主图的工厂函数（用于 LangGraph Studio）
@@ -707,6 +812,11 @@ def create_main_graph_for_studio(checkpointer=None):
     此函数使用与应用相同的配置逻辑（通过 create_checkpointer），
     确保行为一致。
 
+    **状态初始化适配**：
+    为了解决 Studio 输入格式与 GlobalState Schema 不匹配的问题，
+    此函数返回一个包装图，在入口处自动将 Studio 输入（简化的 API 请求体格式）
+    转换为完整的 GlobalState，避免节点访问缺失字段时出现 KeyError。
+
     Args:
         checkpointer: 状态持久化器
             - 如果为 None：使用 create_checkpointer() 创建
@@ -714,21 +824,35 @@ def create_main_graph_for_studio(checkpointer=None):
             - 如果为 BaseCheckpointSaver：直接使用
 
     Returns:
-        编译后的主图
+        编译后的包装图（包含状态标准化逻辑）
 
     Note:
         - 环境变量从 .env.dev 读取（与应用相同）
         - LLM 实例通过 get_llm_instance() 获取（使用相同配置）
         - Checkpointer 通过 create_checkpointer() 创建（使用相同配置）
         - LangGraph Studio 传入的 checkpointer 是 dict 配置对象，需要忽略
+
+    Studio 输入格式支持：
+        1. 简化格式（API 请求体）：
+           {code: "...", language: "python", optimization_level: "balanced"}
+        2. 完整 GlobalState：
+           {task_id: "...", user_id: "...", original_code: "...", ...}
+        3. 部分 GlobalState（自动补全缺失字段）
     """
     # LangGraph Studio 传入的是 dict 配置，我们需要忽略它
     # 使用我们自己的 checkpointer 创建逻辑
     if checkpointer is None or isinstance(checkpointer, dict):
         checkpointer = None  # 让 MainGraphBuilder 使用默认的 create_checkpointer()
 
+    # 构建主图
     builder = MainGraphBuilder(checkpointer=checkpointer)
-    return builder.compile()
+    main_graph = builder.compile()
+
+    # 创建包装图（添加状态标准化层）
+    logger.info("为 LangGraph Studio 创建包装图（包含状态标准化）")
+    wrapper_graph = _create_studio_wrapper_graph(main_graph, checkpointer=checkpointer)
+
+    return wrapper_graph
 
 
 # ============================================================================

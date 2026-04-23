@@ -376,7 +376,10 @@ class VisualGeneratorAgent:
             # 5. 生成教学要点
             teaching_notes = await self._generate_teaching_notes(state)
 
-            # 6. 组装算法讲解
+            # 6. 生成关键洞察
+            key_insights = await self._generate_key_insights(state)
+
+            # 7. 组装算法讲解
             explanation = AlgorithmExplanation(
                 steps=state.get('execution_steps') or [],
                 pseudocode=pseudocode,
@@ -384,7 +387,8 @@ class VisualGeneratorAgent:
                 space_complexity=complexity_analysis.get("space", "O(?)"),
                 visualization=visual_diagrams,
                 step_explanations=step_explanations,
-                teaching_notes=teaching_notes
+                teaching_notes=teaching_notes,
+                key_insights=key_insights
             )
 
             state['algorithm_explanation'] = explanation
@@ -424,6 +428,32 @@ class VisualGeneratorAgent:
 
         except Exception as e:
             logger.error(f"生成步骤解释失败: {str(e)}")
+            return []
+
+    async def _generate_key_insights(self, state: DissectionState) -> List[str]:
+        """生成关键洞察"""
+        try:
+            insights = []
+
+            # 基于执行步骤生成洞察
+            execution_steps = state.get('execution_steps') or []
+            if execution_steps:
+                insights.append(f"算法包含 {len(execution_steps)} 个主要执行步骤")
+
+            # 基于算法类型生成洞察
+            algorithm_type = state.get('algorithm_type')
+            if algorithm_type:
+                insights.append(f"这是一个 {algorithm_type} 类型的算法")
+
+            # 基于数据结构生成洞察
+            data_structures = state.get('data_structures_used') or []
+            if data_structures:
+                insights.append(f"使用了以下数据结构: {', '.join(data_structures)}")
+
+            return insights if insights else ["算法分析完成"]
+
+        except Exception as e:
+            logger.error(f"生成关键洞察失败: {str(e)}")
             return []
 
     async def _analyze_complexity(self, state: DissectionState) -> Dict[str, str]:
